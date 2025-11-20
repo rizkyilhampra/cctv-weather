@@ -1,3 +1,6 @@
+// Enable improved file handling behavior
+process.env.NTBA_FIX_350 = '1';
+
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 import fs from 'fs';
