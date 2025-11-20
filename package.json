@@ -2,19 +2,22 @@
   "name": "cctv-weather",
   "version": "1.0.0",
   "description": "CCTV snapshot capture tool",
-  "main": "dist/capture.js",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "tsx capture.ts",
+    "start": "tsx index.ts",
+    "start:capture": "tsx capture.ts",
     "build": "tsc",
-    "dev": "tsx watch capture.ts"
+    "dev": "tsx watch index.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "dotenv": "^17.2.3",
+    "node-telegram-bot-api": "^0.66.0",
     "playwright": "^1.56.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "@types/node-telegram-bot-api": "^0.64.12",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }

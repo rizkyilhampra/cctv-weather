@@ -21,7 +21,7 @@ const config = {
     videoReadyTimeout: parseInt(process.env.VIDEO_READY_TIMEOUT || '5000'),
 };
 
-interface CapturedImage {
+export interface CapturedImage {
     location: string;
     base64: string;
 }
@@ -129,7 +129,12 @@ async function captureSingleCamera(
     return { success: false, error: 'Max retries exceeded' };
 }
 
-async function main(): Promise<void> {
+export interface CaptureAnalysisResult {
+    analysis: string;
+    images: CapturedImage[];
+}
+
+async function main(): Promise<CaptureAnalysisResult> {
     console.log('Starting CCTV Weather Analysis...\n');
 
     // Launch browser
@@ -198,7 +203,7 @@ async function main(): Promise<void> {
 
         if (capturedImages.length === 0) {
             console.error('No images were captured. Cannot perform analysis.');
-            return;
+            throw new Error('No images were captured');
         }
 
         // Analyze all images with one prompt
@@ -250,31 +255,49 @@ LOCATIONS:
 SUMMARY:
 [2-3 sentences about whether it's raining in Kabupaten Banjar, if roads are wet/becek, and practical footwear advice for travelers]`;
 
+        let analysis: string;
         try {
-            const analysis = await analyzeMultipleImages(capturedImages, prompt);
+            analysis = await analyzeMultipleImages(capturedImages, prompt);
             console.log(analysis.trim());
         } catch (error) {
             console.error('Error analyzing images:', error);
             console.log('\nFallback analysis:');
-            console.log('LOCATIONS:');
+
+            const fallbackLines = ['LOCATIONS:'];
             capturedImages.forEach((img, idx) => {
+                fallbackLines.push(`${idx + 1}. ${img.location} - ANALYSIS FAILED`);
                 console.log(`${idx + 1}. ${img.location} - ANALYSIS FAILED`);
             });
+            fallbackLines.push('\nSUMMARY:');
+            fallbackLines.push('Unable to analyze weather conditions due to an error.');
+
             console.log('\nSUMMARY:');
             console.log('Unable to analyze weather conditions due to an error.');
+
+            analysis = fallbackLines.join('\n');
         }
 
         console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+        return {
+            analysis: analysis.trim(),
+            images: capturedImages
+        };
 
     } catch (error) {
         const err = error as Error;
         console.error('Fatal Error:', err.message);
         await browser.close();
+        throw error;
     }
 }
 
-// Run the main function
-main().catch((error) => {
-    console.error('Unhandled error:', error);
-    process.exit(1);
-});
+export { main };
+
+// Run the main function if this file is executed directly
+if (require.main === module) {
+    main().catch((error) => {
+        console.error('Unhandled error:', error);
+        process.exit(1);
+    });
+}
