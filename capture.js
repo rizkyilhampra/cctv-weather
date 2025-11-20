@@ -73,8 +73,8 @@ const path = require('path');
                 // Wait for data (prevent black screen)
                 try {
                     await page.waitForFunction(
-                        (el) => el.readyState >= 2, 
-                        await videoLocator.elementHandle(), 
+                        (el) => el.readyState >= 2 && el.videoWidth > 0 && el.videoHeight > 0,
+                        await videoLocator.elementHandle(),
                         { timeout: 5000 }
                     );
                 } catch (e) {
@@ -82,39 +82,27 @@ const path = require('path');
                     continue; // Skip if it won't load data
                 }
 
-                // --- THE "HD" HACK ---
-                // We inject JS to make THIS specific video fill the entire screen temporarily
-                // This forces the screenshot to be 1920x1080 instead of small grid size.
-                await videoLocator.evaluate((el) => {
-                    el.dataset.originalStyle = el.getAttribute('style'); // Backup style
-                    el.style.position = 'fixed';
-                    el.style.top = '0';
-                    el.style.left = '0';
-                    el.style.width = '100vw';
-                    el.style.height = '100vh';
-                    el.style.zIndex = '99999';
-                    el.style.backgroundColor = 'black';
-                    el.style.objectFit = 'contain'; // Keep aspect ratio, don't stretch
-                });
-
-                // Wait a split second for the resize to render
-                await page.waitForTimeout(500);
-
                 const safeTitle = title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
                 const filename = path.join(outputDir, `${safeTitle}_hd.png`);
 
-                // Screenshot the WHOLE PAGE (which is now just the video)
-                await page.screenshot({ path: filename });
+                // --- CANVAS API CAPTURE ---
+                // Capture the actual video frame at native resolution using Canvas API
+                const videoElement = await videoLocator.elementHandle();
+                const base64Image = await page.evaluate((video) => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = video.videoWidth;  // Native video resolution
+                    canvas.height = video.videoHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(video, 0, 0);
+                    return canvas.toDataURL('image/png');
+                }, videoElement);
+
+                // Convert base64 to buffer and save
+                const base64Data = base64Image.replace(/^data:image\/png;base64,/, '');
+                const buffer = Buffer.from(base64Data, 'base64');
+                fs.writeFileSync(filename, buffer);
 
                 console.log(`   ✅ Captured HD: ${filename}`);
-
-                // --- RESTORE STYLE ---
-                // Put the video back in the grid so we can continue
-                await videoLocator.evaluate((el) => {
-                    const original = el.dataset.originalStyle;
-                    if (original) el.setAttribute('style', original);
-                    else el.removeAttribute('style');
-                });
                 
                 capturedCount++;
 
