@@ -1,7 +1,6 @@
 import { chromium, Browser, BrowserContext, Page, Locator } from 'playwright';
-import fs from 'fs';
-import path from 'path';
 import dotenv from 'dotenv';
+import { analyzeMultipleImages } from './genai';
 
 // Load environment variables
 dotenv.config();
@@ -14,40 +13,40 @@ const config = {
     chromiumPath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
     headless: process.env.HEADLESS === 'true',
     browserChannel: process.env.BROWSER_CHANNEL || 'chrome',
-    targetCount: parseInt(process.env.TARGET_COUNT || '5'),
-    outputDir: process.env.OUTPUT_DIR || 'cctv_snapshots',
+    targetCount: parseInt(process.env.TARGET_COUNT || '3'),
     maxRetries: parseInt(process.env.MAX_RETRIES || '2'),
     pageLoadTimeout: parseInt(process.env.PAGE_LOAD_TIMEOUT || '90000'),
     selectorTimeout: parseInt(process.env.SELECTOR_TIMEOUT || '30000'),
     videoInitWait: parseInt(process.env.VIDEO_INIT_WAIT || '5000'),
     videoReadyTimeout: parseInt(process.env.VIDEO_READY_TIMEOUT || '5000'),
-    errorLogFile: process.env.ERROR_LOG_FILE || 'capture_errors.log',
 };
 
-interface CaptureError {
-    timestamp: string;
-    cameraName: string;
-    attempt: number;
-    errorMessage: string;
+interface CapturedImage {
+    location: string;
+    base64: string;
 }
 
 interface CaptureResult {
     success: boolean;
-    filename?: string;
+    location?: string;
+    base64Image?: string;
     error?: string;
 }
 
-// Error logging utility
-function logError(error: CaptureError): void {
-    const logEntry = `[${error.timestamp}] Camera: "${error.cameraName}" | Attempt: ${error.attempt} | Error: ${error.errorMessage}\n`;
-    fs.appendFileSync(config.errorLogFile, logEntry);
+/**
+ * Get camera location name from title
+ */
+function getCameraLocation(title: string): string {
+    return title.trim();
 }
 
-async function captureVideoFrame(
+/**
+ * Capture video frame and return as base64
+ */
+async function captureVideoFrameBase64(
     page: Page,
-    videoLocator: Locator,
-    filename: string
-): Promise<void> {
+    videoLocator: Locator
+): Promise<string> {
     const base64Image = await videoLocator.evaluate((video) => {
         const canvas = document.createElement('canvas');
         canvas.width = (video as HTMLVideoElement).videoWidth;
@@ -58,9 +57,8 @@ async function captureVideoFrame(
         return canvas.toDataURL('image/png');
     });
 
-    const base64Data = base64Image.replace(/^data:image\/png;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-    fs.writeFileSync(filename, buffer);
+    // Return base64 without the data:image/png;base64, prefix
+    return base64Image.replace(/^data:image\/png;base64,/, '');
 }
 
 async function isVideoReady(
@@ -90,8 +88,7 @@ async function isVideoReady(
 async function captureSingleCamera(
     page: Page,
     card: Locator,
-    cameraName: string,
-    outputPath: string
+    cameraName: string
 ): Promise<CaptureResult> {
     for (let attempt = 1; attempt <= config.maxRetries + 1; attempt++) {
         try {
@@ -110,21 +107,14 @@ async function captureSingleCamera(
                 throw new Error('Video stuck buffering');
             }
 
-            // Capture video frame using Canvas API
-            await captureVideoFrame(page, videoLocator, outputPath);
+            // Capture video frame as base64
+            const base64Image = await captureVideoFrameBase64(page, videoLocator);
+            const location = getCameraLocation(cameraName);
 
-            return { success: true, filename: outputPath };
+            return { success: true, location, base64Image };
         } catch (err) {
             const error = err as Error;
             const errorMessage = error.message;
-
-            // Log the error
-            logError({
-                timestamp: new Date().toISOString(),
-                cameraName,
-                attempt,
-                errorMessage,
-            });
 
             // If this was the last attempt, return failure
             if (attempt > config.maxRetries) {
@@ -132,7 +122,6 @@ async function captureSingleCamera(
             }
 
             // Wait a bit before retrying
-            console.log(`   ⚠️ Attempt ${attempt} failed: ${errorMessage}. Retrying...`);
             await page.waitForTimeout(1000);
         }
     }
@@ -141,7 +130,7 @@ async function captureSingleCamera(
 }
 
 async function main(): Promise<void> {
-    console.log('Starting CCTV capture with configuration:', config);
+    console.log('Starting CCTV Weather Analysis...\n');
 
     // Launch browser
     const browser: Browser = await chromium.launch({
@@ -153,13 +142,10 @@ async function main(): Promise<void> {
     const context: BrowserContext = await browser.newContext();
     const page: Page = await context.newPage();
 
-    // Create output directory
-    if (!fs.existsSync(config.outputDir)) {
-        fs.mkdirSync(config.outputDir);
-    }
+    const capturedImages: CapturedImage[] = [];
 
     try {
-        console.log('Navigating to Grid...');
+        console.log('Navigating to CCTV Grid...');
         await page.goto(CCTV_URL, {
             waitUntil: 'load',
             timeout: config.pageLoadTimeout,
@@ -167,17 +153,16 @@ async function main(): Promise<void> {
 
         // Wait for CCTV cards to be visible
         await page.waitForSelector('.cctv-card', { timeout: config.selectorTimeout });
-        console.log('Page loaded, waiting for streams to initialize...');
+        console.log('Page loaded, waiting for streams to initialize...\n');
 
         // Give videos time to start loading
         await page.waitForTimeout(config.videoInitWait);
 
         // Find all cards
         const cards = await page.locator('.cctv-card').all();
-        console.log(`Found ${cards.length} cameras. Looking for ${config.targetCount} verified live streams...`);
+        console.log(`Found ${cards.length} cameras. Capturing ${config.targetCount} live streams...\n`);
 
         let capturedCount = 0;
-        let failedCount = 0;
 
         for (const card of cards) {
             if (capturedCount >= config.targetCount) break;
@@ -185,46 +170,105 @@ async function main(): Promise<void> {
             const title = (await card.locator('.cctv-header').innerText()).trim();
 
             // STRICT OFFLINE CHECK
-            // Check 1: Status Badge
             const isBadgeOnline = (await card.locator('.status-badge.online').count()) > 0;
-
-            // Check 2: Is the "Error/Offline" image visible?
             const isErrorVisible = await card.locator('.error-msg').isVisible();
 
             if (!isBadgeOnline || isErrorVisible) {
-                // Silently skip offline ones
                 continue;
             }
 
-            console.log(`\n[${capturedCount + 1}/${config.targetCount}] Processing: "${title}"`);
+            console.log(`[${capturedCount + 1}/${config.targetCount}] Capturing: "${title}"...`);
 
-            const safeTitle = title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-            const filename = path.join(config.outputDir, `${safeTitle}.png`);
+            // Capture the camera feed
+            const result = await captureSingleCamera(page, card, title);
 
-            // Attempt capture with retry logic
-            const result = await captureSingleCamera(page, card, title, filename);
-
-            if (result.success) {
-                console.log(`   ✅ Captured: ${result.filename}`);
+            if (result.success && result.base64Image && result.location) {
+                capturedImages.push({
+                    location: result.location,
+                    base64: result.base64Image
+                });
+                console.log(`   ✓ Captured\n`);
                 capturedCount++;
             } else {
-                console.error(`   ❌ Failed after ${config.maxRetries + 1} attempts: ${result.error}`);
-                failedCount++;
+                console.error(`   ✗ Failed: ${result.error}\n`);
             }
         }
 
-        console.log(`\n========== Summary ==========`);
-        console.log(`✅ Successfully captured: ${capturedCount}`);
-        console.log(`❌ Failed: ${failedCount}`);
-        console.log(`📁 Output directory: ${config.outputDir}`);
-        if (failedCount > 0) {
-            console.log(`📝 Error log: ${config.errorLogFile}`);
+        await browser.close();
+
+        if (capturedImages.length === 0) {
+            console.error('No images were captured. Cannot perform analysis.');
+            return;
         }
-        console.log(`=============================`);
+
+        // Analyze all images with one prompt
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        console.log('Analyzing weather conditions across all locations...\n');
+
+        const locationsList = capturedImages.map((img, idx) => `${idx + 1}. ${img.location}`).join('\n');
+
+        const prompt = `You are analyzing ${capturedImages.length} CCTV camera images from different locations in Kabupaten Banjar, Indonesia.
+
+The locations are:
+${locationsList}
+
+For EACH image, determine the weather/road condition using these categories:
+
+1. RAINING - Active rainfall happening now:
+   PRIMARY indicators (most important):
+   - Visible rain droplets/streaks falling in the air
+   - Heavy rain droplets on camera lens (distorting the view)
+   - Very low visibility/foggy/hazy atmosphere
+   - Water splashing from moving vehicles
+
+   SECONDARY indicators (less reliable):
+   - Dark, overcast sky
+   - Note: People may use umbrellas for sun protection even when it's clear, so umbrellas alone are NOT a strong indicator
+
+2. WET - Recently rained, roads are wet/becek (muddy):
+   - Roads are wet, shiny, or reflective
+   - Puddles of water visible on roads
+   - Wet surfaces on buildings/sidewalks
+   - Good visibility (not foggy)
+   - Sky may be clearing but ground is still wet
+   - No active rainfall visible
+
+3. DRY - Clear, dry conditions:
+   - Dry road surfaces (not shiny/reflective)
+   - No puddles
+   - Clear visibility
+   - Bright or normal lighting conditions
+   - No signs of recent rain
+
+Respond in this EXACT format:
+
+LOCATIONS:
+1. [Location Name] - [RAINING/WET/DRY]
+2. [Location Name] - [RAINING/WET/DRY]
+...
+
+SUMMARY:
+[2-3 sentences about whether it's raining in Kabupaten Banjar, if roads are wet/becek, and practical footwear advice for travelers]`;
+
+        try {
+            const analysis = await analyzeMultipleImages(capturedImages, prompt);
+            console.log(analysis.trim());
+        } catch (error) {
+            console.error('Error analyzing images:', error);
+            console.log('\nFallback analysis:');
+            console.log('LOCATIONS:');
+            capturedImages.forEach((img, idx) => {
+                console.log(`${idx + 1}. ${img.location} - ANALYSIS FAILED`);
+            });
+            console.log('\nSUMMARY:');
+            console.log('Unable to analyze weather conditions due to an error.');
+        }
+
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
     } catch (error) {
         const err = error as Error;
         console.error('Fatal Error:', err.message);
-    } finally {
         await browser.close();
     }
 }
