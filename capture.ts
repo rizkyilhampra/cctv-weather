@@ -223,7 +223,7 @@ async function main(): Promise<CaptureAnalysisResult> {
 
         const locationsList = capturedImages.map((img, idx) => `${idx + 1}. ${img.location}`).join('\n');
 
-        const prompt = `You are analyzing ${capturedImages.length} CCTV camera images from different locations in Kabupaten Banjar, Indonesia.
+        const prompt = `You are analyzing ${capturedImages.length} CCTV camera images from different locations in Kabupaten Banjar, Martapura, Indonesia.
 
 The locations are:
 ${locationsList}
@@ -241,7 +241,7 @@ For EACH image, determine the weather/road condition using these categories:
    - Dark, overcast sky
    - Note: People may use umbrellas for sun protection even when it's clear, so umbrellas alone are NOT a strong indicator
 
-2. WET - Recently rained, roads are wet/becek (muddy):
+2. WET - Recently rained, roads are wet/muddy/slippery:
    - Roads are wet, shiny, or reflective
    - Puddles of water visible on roads
    - Wet surfaces on buildings/sidewalks
@@ -256,15 +256,22 @@ For EACH image, determine the weather/road condition using these categories:
    - Bright or normal lighting conditions
    - No signs of recent rain
 
-Respond in this EXACT format:
+Now write a casual, friendly weather update message that flows naturally like a conversation.
 
-LOCATIONS:
-1. [Location Name] - [RAINING/WET/DRY]
-2. [Location Name] - [RAINING/WET/DRY]
-...
+Start with a greeting that includes today's day of week and location, like:
+- "Hey there! Here's your morning weather update for today (Monday) in Kabupaten Banjar, Martapura..."
+- "Good morning! Here's what the weather looks like today (Tuesday) for Kabupaten Banjar, Martapura..."
+- "Hey! Quick weather check for today (Wednesday) in Kabupaten Banjar, Martapura..."
 
-SUMMARY:
-[2-3 sentences about whether it's raining in Kabupaten Banjar, if roads are wet/becek, and practical footwear advice for travelers]`;
+Then continue with 2-3 sentences describing the current weather conditions. Talk directly to the reader using "you" and "your". Mention specific location names where there's rain, wet/muddy/slippery roads, or dry conditions. End with practical advice about umbrellas and waterproof footwear if needed.
+
+Important:
+- Make it flow naturally - integrate the day, location, and greeting together
+- NO separate header or title - just write it as a natural paragraph
+- Write directly and personally
+- Mention specific location names from the list above
+- Include practical advice when relevant
+- Keep it friendly and conversational throughout`;
 
         let analysis: string;
         try {
@@ -274,18 +281,12 @@ SUMMARY:
             console.error('Error analyzing images:', error);
             console.log('\nFallback analysis:');
 
-            const fallbackLines = ['LOCATIONS:'];
-            capturedImages.forEach((img, idx) => {
-                fallbackLines.push(`${idx + 1}. ${img.location} - ANALYSIS FAILED`);
-                console.log(`${idx + 1}. ${img.location} - ANALYSIS FAILED`);
-            });
-            fallbackLines.push('\nSUMMARY:');
-            fallbackLines.push('Unable to analyze weather conditions due to an error.');
+            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const today = days[new Date().getDay()];
 
-            console.log('\nSUMMARY:');
-            console.log('Unable to analyze weather conditions due to an error.');
+            analysis = `Hey there! Sorry, we're unable to analyze the weather conditions for today (${today}) in Kabupaten Banjar, Martapura due to a technical error. Please check back later for updates!`;
 
-            analysis = fallbackLines.join('\n');
+            console.log(analysis);
         }
 
         console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
