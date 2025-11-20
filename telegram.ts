@@ -41,25 +41,7 @@ class TelegramService {
 
     console.log(`Sending weather report to Telegram channel ${this.chatId}...`);
 
-    // Send the analysis text first with retry
-    await withRetry(
-      async () => {
-        await this.bot!.sendMessage(this.chatId, analysis, {
-          parse_mode: 'Markdown',
-        });
-      },
-      {
-        maxRetries: 3,
-        initialDelayMs: 120000, // 2 minutes
-        backoffMultiplier: 2,
-        onRetry: (attempt, error, delayMs) => {
-          console.log(`\nFailed to send analysis text: ${error.message}`);
-          logRetryAttempt('sendMessage (analysis)', attempt, 3, error, delayMs);
-        },
-      }
-    );
-
-    // If there are images, send them as a media group
+    // Send images first if available
     if (images.length > 0) {
       console.log(`Sending ${images.length} images to Telegram...`);
 
@@ -78,7 +60,10 @@ class TelegramService {
 
               return {
                 type: 'photo',
-                media: buffer,
+                media: {
+                  source: buffer,
+                  filename: `${img.location.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.jpg`,
+                },
                 caption: i + index === 0 ? `CCTV Images - ${new Date().toLocaleString()}` : img.location,
               };
             });
@@ -96,10 +81,10 @@ class TelegramService {
           }
         );
 
-        // If media group failed after retries, try sending text-only notification
+        // If media group failed after retries, log warning but continue
         if (!result.success) {
           console.warn(`\n⚠️  Failed to send images (batch ${i / maxImagesPerGroup + 1}) after ${result.attempts} attempts`);
-          console.warn('Graceful degradation: Analysis text was sent successfully');
+          console.warn('Will still attempt to send analysis text');
 
           // Try to notify user about missing images
           try {
@@ -121,6 +106,24 @@ class TelegramService {
         }
       }
     }
+
+    // Send the analysis text after images with retry
+    await withRetry(
+      async () => {
+        await this.bot!.sendMessage(this.chatId, analysis, {
+          parse_mode: 'Markdown',
+        });
+      },
+      {
+        maxRetries: 3,
+        initialDelayMs: 120000, // 2 minutes
+        backoffMultiplier: 2,
+        onRetry: (attempt, error, delayMs) => {
+          console.log(`\nFailed to send analysis text: ${error.message}`);
+          logRetryAttempt('sendMessage (analysis)', attempt, 3, error, delayMs);
+        },
+      }
+    );
 
     console.log('Weather report sent successfully to Telegram!');
   }
