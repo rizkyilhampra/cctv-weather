@@ -60,9 +60,10 @@ class TelegramService {
 
               return {
                 type: 'photo',
-                media: {
-                  source: buffer,
+                media: buffer,
+                fileOptions: {
                   filename: `${img.location.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.jpg`,
+                  contentType: 'image/jpeg',
                 },
                 caption: i + index === 0 ? `CCTV Images - ${new Date().toLocaleString()}` : img.location,
               };
