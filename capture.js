@@ -21,7 +21,17 @@ const path = require('path');
 
     try {
         console.log('Navigating to Grid...');
-        await page.goto('https://cctv.banjarkab.go.id/grid', { waitUntil: 'networkidle' });
+        await page.goto('https://cctv.banjarkab.go.id/grid', {
+            waitUntil: 'load',
+            timeout: 90000
+        });
+
+        // Wait for CCTV cards to be visible
+        await page.waitForSelector('.cctv-card', { timeout: 30000 });
+        console.log('Page loaded, waiting for streams to initialize...');
+
+        // Give videos time to start loading
+        await page.waitForTimeout(5000);
 
         // 2. Find all cards
         const cards = await page.locator('.cctv-card').all();
