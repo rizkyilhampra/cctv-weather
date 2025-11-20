@@ -3,3 +3,5 @@ dist
 *snapshots/
 .env
 *.log
+logs/
+failed_reports/

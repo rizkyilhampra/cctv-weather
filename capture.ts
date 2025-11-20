@@ -1,6 +1,7 @@
 import { chromium, Browser, BrowserContext, Page, Locator } from 'playwright';
 import dotenv from 'dotenv';
 import { analyzeMultipleImages } from './genai';
+import { isPermanentError } from './retry';
 
 // Load environment variables
 dotenv.config();
@@ -90,6 +91,8 @@ async function captureSingleCamera(
     card: Locator,
     cameraName: string
 ): Promise<CaptureResult> {
+    let lastError: Error | null = null;
+
     for (let attempt = 1; attempt <= config.maxRetries + 1; attempt++) {
         try {
             const videoLocator = card.locator('video');
@@ -114,19 +117,27 @@ async function captureSingleCamera(
             return { success: true, location, base64Image };
         } catch (err) {
             const error = err as Error;
-            const errorMessage = error.message;
+            lastError = error;
+
+            // Check if this is a permanent error (e.g., element not found, invalid selector)
+            if (isPermanentError(error)) {
+                console.log(`   Permanent error detected, not retrying: ${error.message}`);
+                return { success: false, error: error.message };
+            }
 
             // If this was the last attempt, return failure
             if (attempt > config.maxRetries) {
-                return { success: false, error: errorMessage };
+                return { success: false, error: error.message };
             }
 
-            // Wait a bit before retrying
-            await page.waitForTimeout(1000);
+            // Exponential backoff: 2s, 4s, 8s for browser operations (fast retries)
+            const delayMs = 2000 * Math.pow(2, attempt - 1);
+            console.log(`   Retry ${attempt}/${config.maxRetries} after ${delayMs / 1000}s...`);
+            await page.waitForTimeout(delayMs);
         }
     }
 
-    return { success: false, error: 'Max retries exceeded' };
+    return { success: false, error: lastError?.message || 'Max retries exceeded' };
 }
 
 export interface CaptureAnalysisResult {

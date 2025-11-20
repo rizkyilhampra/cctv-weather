@@ -2,6 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { withRetry, withRetrySafe, logRetryAttempt } from './retry';
 
 dotenv.config();
 
@@ -38,50 +39,90 @@ class TelegramService {
       throw new Error('Telegram bot is not initialized');
     }
 
-    try {
-      console.log(`Sending weather report to Telegram channel ${this.chatId}...`);
+    console.log(`Sending weather report to Telegram channel ${this.chatId}...`);
 
-      // Send the analysis text first
-      await this.bot.sendMessage(this.chatId, analysis, {
-        parse_mode: 'Markdown',
-      });
+    // Send the analysis text first with retry
+    await withRetry(
+      async () => {
+        await this.bot!.sendMessage(this.chatId, analysis, {
+          parse_mode: 'Markdown',
+        });
+      },
+      {
+        maxRetries: 3,
+        initialDelayMs: 120000, // 2 minutes
+        backoffMultiplier: 2,
+        onRetry: (attempt, error, delayMs) => {
+          console.log(`\nFailed to send analysis text: ${error.message}`);
+          logRetryAttempt('sendMessage (analysis)', attempt, 3, error, delayMs);
+        },
+      }
+    );
 
-      // If there are images, send them as a media group
-      if (images.length > 0) {
-        console.log(`Sending ${images.length} images to Telegram...`);
+    // If there are images, send them as a media group
+    if (images.length > 0) {
+      console.log(`Sending ${images.length} images to Telegram...`);
 
-        // Telegram media groups support up to 10 items
-        const maxImagesPerGroup = 10;
+      // Telegram media groups support up to 10 items
+      const maxImagesPerGroup = 10;
 
-        for (let i = 0; i < images.length; i += maxImagesPerGroup) {
-          const batch = images.slice(i, i + maxImagesPerGroup);
+      for (let i = 0; i < images.length; i += maxImagesPerGroup) {
+        const batch = images.slice(i, i + maxImagesPerGroup);
 
-          // Convert base64 images to buffers and create media group
-          const media: any[] = batch.map((img, index) => {
-            const buffer = Buffer.from(img.base64, 'base64');
+        // Try to send media group with retry
+        const result = await withRetrySafe(
+          async () => {
+            // Convert base64 images to buffers and create media group
+            const media: any[] = batch.map((img, index) => {
+              const buffer = Buffer.from(img.base64, 'base64');
 
-            return {
-              type: 'photo',
-              media: buffer,
-              caption: i + index === 0 ? `CCTV Images - ${new Date().toLocaleString()}` : img.location,
-            };
-          });
+              return {
+                type: 'photo',
+                media: buffer,
+                caption: i + index === 0 ? `CCTV Images - ${new Date().toLocaleString()}` : img.location,
+              };
+            });
 
-          // Send media group
-          await this.bot.sendMediaGroup(this.chatId, media);
-
-          // Small delay between batches to avoid rate limiting
-          if (i + maxImagesPerGroup < images.length) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await this.bot!.sendMediaGroup(this.chatId, media);
+          },
+          {
+            maxRetries: 3,
+            initialDelayMs: 120000, // 2 minutes
+            backoffMultiplier: 2,
+            onRetry: (attempt, error, delayMs) => {
+              console.log(`\nFailed to send media group (batch ${i / maxImagesPerGroup + 1}): ${error.message}`);
+              logRetryAttempt('sendMediaGroup', attempt, 3, error, delayMs);
+            },
           }
+        );
+
+        // If media group failed after retries, try sending text-only notification
+        if (!result.success) {
+          console.warn(`\n⚠️  Failed to send images (batch ${i / maxImagesPerGroup + 1}) after ${result.attempts} attempts`);
+          console.warn('Graceful degradation: Analysis text was sent successfully');
+
+          // Try to notify user about missing images
+          try {
+            await this.bot.sendMessage(
+              this.chatId,
+              `⚠️ Note: Could not send ${batch.length} images due to: ${result.error?.message}`
+            );
+          } catch (notifyError) {
+            console.error('Could not send image failure notification:', notifyError);
+          }
+
+          // Continue with next batch instead of failing completely
+          continue;
+        }
+
+        // Small delay between batches to avoid rate limiting
+        if (i + maxImagesPerGroup < images.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
-
-      console.log('Weather report sent successfully to Telegram!');
-    } catch (error) {
-      console.error('Error sending to Telegram:', error);
-      throw error;
     }
+
+    console.log('Weather report sent successfully to Telegram!');
   }
 
   /**
@@ -92,13 +133,22 @@ class TelegramService {
       throw new Error('Telegram bot is not initialized');
     }
 
-    try {
-      await this.bot.sendMessage(this.chatId, message);
-      console.log('Message sent to Telegram successfully');
-    } catch (error) {
-      console.error('Error sending message to Telegram:', error);
-      throw error;
-    }
+    await withRetry(
+      async () => {
+        await this.bot!.sendMessage(this.chatId, message);
+      },
+      {
+        maxRetries: 3,
+        initialDelayMs: 120000, // 2 minutes
+        backoffMultiplier: 2,
+        onRetry: (attempt, error, delayMs) => {
+          console.log(`\nFailed to send message: ${error.message}`);
+          logRetryAttempt('sendMessage', attempt, 3, error, delayMs);
+        },
+      }
+    );
+
+    console.log('Message sent to Telegram successfully');
   }
 
   /**
@@ -107,10 +157,61 @@ class TelegramService {
   async sendError(error: Error): Promise<void> {
     const errorMessage = `⚠️ *Error in Weather Analysis*\n\n\`\`\`\n${error.message}\n\`\`\``;
 
+    // Use safe retry - don't throw if this fails
+    const result = await withRetrySafe(
+      async () => {
+        await this.bot!.sendMessage(this.chatId, errorMessage, {
+          parse_mode: 'Markdown',
+        });
+      },
+      {
+        maxRetries: 2, // Fewer retries for error notifications
+        initialDelayMs: 60000, // 1 minute for error notifications
+        backoffMultiplier: 2,
+        onRetry: (attempt, error, delayMs) => {
+          console.log(`\nFailed to send error notification: ${error.message}`);
+          logRetryAttempt('sendError', attempt, 2, error, delayMs);
+        },
+      }
+    );
+
+    if (!result.success) {
+      console.error('Failed to send error notification to Telegram after retries');
+      console.error('Original error:', error.message);
+      console.error('Notification error:', result.error?.message);
+
+      // Last resort: write to local error log
+      this.logErrorLocally(error, result.error);
+    }
+  }
+
+  /**
+   * Log errors locally when Telegram notification fails
+   */
+  private logErrorLocally(originalError: Error, notificationError?: Error): void {
+    const logDir = 'logs';
+    const logFile = path.join(logDir, 'telegram_errors.log');
+
     try {
-      await this.sendMessage(errorMessage);
-    } catch (sendError) {
-      console.error('Failed to send error notification to Telegram:', sendError);
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+
+      const timestamp = new Date().toISOString();
+      const logEntry = [
+        `\n${'='.repeat(80)}`,
+        `[${timestamp}] TELEGRAM ERROR NOTIFICATION FAILED`,
+        `${'='.repeat(80)}`,
+        `Original Error: ${originalError.message}`,
+        `Stack: ${originalError.stack}`,
+        notificationError ? `\nNotification Error: ${notificationError.message}` : '',
+        `${'='.repeat(80)}\n`,
+      ].join('\n');
+
+      fs.appendFileSync(logFile, logEntry);
+      console.log(`Error logged to: ${logFile}`);
+    } catch (logError) {
+      console.error('Failed to write error log:', logError);
     }
   }
 }
