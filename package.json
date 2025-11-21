@@ -4,10 +4,9 @@
   "description": "CCTV snapshot capture tool",
   "main": "dist/index.js",
   "scripts": {
-    "start": "tsx index.ts",
-    "start:capture": "tsx capture.ts",
+    "start": "tsx src/index.ts",
     "build": "tsc",
-    "dev": "tsx watch index.ts"
+    "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

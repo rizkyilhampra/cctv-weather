@@ -1,7 +1,9 @@
 node_modules
 dist
-*snapshots/
 .env
 *.log
-logs/
-failed_reports/
+
+# Data directories
+data/snapshots/
+data/failed_reports/
+data/logs/

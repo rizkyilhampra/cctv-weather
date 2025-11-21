@@ -1,0 +1,171 @@
+/**
+ * Main CCTV capture service - orchestrates browser automation and image capture
+ */
+
+import { chromium, Browser, BrowserContext, Page, Locator } from 'playwright';
+import { CapturedImage, CaptureResult, CaptureAnalysisResult } from '../../types';
+import { browserConfig, apiConfig } from '../../config';
+import { isPermanentError } from '../../infrastructure/retry/error-classifier';
+import { analyzeMultipleImages } from '../ai/genai.service';
+import { generateWeatherAnalysisPrompt, generateFallbackMessage } from '../../prompts/weather-analysis';
+import { getCameraLocation, isCameraOnline } from './camera-selector';
+import { captureVideoFrameBase64, isVideoReady, ensureVideoPlaying } from './video-capture';
+
+/**
+ * Capture a single camera with retry logic
+ */
+async function captureSingleCamera(
+  page: Page,
+  card: Locator,
+  cameraName: string
+): Promise<CaptureResult> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= apiConfig.maxRetries + 1; attempt++) {
+    try {
+      const videoLocator = card.locator('video');
+      await videoLocator.scrollIntoViewIfNeeded();
+
+      // Ensure video is playing
+      await ensureVideoPlaying(videoLocator);
+
+      // Wait for video to be ready
+      const ready = await isVideoReady(page, videoLocator, browserConfig.videoReadyTimeout);
+      if (!ready) {
+        throw new Error('Video stuck buffering');
+      }
+
+      // Capture video frame as base64
+      const base64Image = await captureVideoFrameBase64(page, videoLocator);
+      const location = getCameraLocation(cameraName);
+
+      return { success: true, location, base64Image };
+    } catch (err) {
+      const error = err as Error;
+      lastError = error;
+
+      // Check if this is a permanent error (e.g., element not found, invalid selector)
+      if (isPermanentError(error)) {
+        console.log(`   Permanent error detected, not retrying: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+
+      // If this was the last attempt, return failure
+      if (attempt > apiConfig.maxRetries) {
+        return { success: false, error: error.message };
+      }
+
+      // Exponential backoff: 2s, 4s, 8s for browser operations (fast retries)
+      const delayMs = 2000 * Math.pow(2, attempt - 1);
+      console.log(`   Retry ${attempt}/${apiConfig.maxRetries} after ${delayMs / 1000}s...`);
+      await page.waitForTimeout(delayMs);
+    }
+  }
+
+  return { success: false, error: lastError?.message || 'Max retries exceeded' };
+}
+
+/**
+ * Main capture and analysis function
+ */
+export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
+  console.log('Starting CCTV Weather Analysis...\n');
+
+  // Launch browser
+  const browser: Browser = await chromium.launch({
+    headless: browserConfig.headless,
+    channel: browserConfig.browserChannel,
+    executablePath: browserConfig.chromiumPath,
+  });
+
+  const context: BrowserContext = await browser.newContext();
+  const page: Page = await context.newPage();
+
+  const capturedImages: CapturedImage[] = [];
+
+  try {
+    console.log('Navigating to CCTV Grid...');
+    await page.goto(apiConfig.cctvUrl, {
+      waitUntil: 'load',
+      timeout: browserConfig.pageLoadTimeout,
+    });
+
+    // Wait for CCTV cards to be visible
+    await page.waitForSelector('.cctv-card', { timeout: browserConfig.selectorTimeout });
+    console.log('Page loaded, waiting for streams to initialize...\n');
+
+    // Give videos time to start loading
+    await page.waitForTimeout(browserConfig.videoInitWait);
+
+    // Find all cards
+    const cards = await page.locator('.cctv-card').all();
+    console.log(`Found ${cards.length} cameras. Capturing ${apiConfig.targetCount} live streams...\n`);
+
+    let capturedCount = 0;
+
+    for (const card of cards) {
+      if (capturedCount >= apiConfig.targetCount) break;
+
+      const title = (await card.locator('.cctv-header').innerText()).trim();
+
+      // Check if camera is online
+      if (!(await isCameraOnline(card))) {
+        continue;
+      }
+
+      console.log(`[${capturedCount + 1}/${apiConfig.targetCount}] Capturing: "${title}"...`);
+
+      // Capture the camera feed
+      const result = await captureSingleCamera(page, card, title);
+
+      if (result.success && result.base64Image && result.location) {
+        capturedImages.push({
+          location: result.location,
+          base64: result.base64Image
+        });
+        console.log(`   ✓ Captured\n`);
+        capturedCount++;
+      } else {
+        console.error(`   ✗ Failed: ${result.error}\n`);
+      }
+    }
+
+    await browser.close();
+
+    if (capturedImages.length === 0) {
+      console.error('No images were captured. Cannot perform analysis.');
+      throw new Error('No images were captured');
+    }
+
+    // Analyze all images with one prompt
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    console.log('Analyzing weather conditions across all locations...\n');
+
+    const prompt = generateWeatherAnalysisPrompt(capturedImages);
+
+    let analysis: string;
+    try {
+      analysis = await analyzeMultipleImages(capturedImages, prompt);
+      console.log(analysis.trim());
+    } catch (error) {
+      console.error('Error analyzing images:', error);
+      console.log('\nFallback analysis:');
+
+      analysis = generateFallbackMessage();
+      console.log(analysis);
+    }
+
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+    return {
+      analysis: analysis.trim(),
+      images: capturedImages
+    };
+
+  } catch (error) {
+    const err = error as Error;
+    console.error('Fatal Error:', err.message);
+    await browser.close();
+    throw error;
+  }
+}

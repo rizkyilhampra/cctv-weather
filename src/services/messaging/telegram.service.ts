@@ -2,17 +2,13 @@
 process.env.NTBA_FIX_350 = '1';
 
 import TelegramBot from 'node-telegram-bot-api';
-import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
-import { withRetry, withRetrySafe, logRetryAttempt } from './retry';
-
-dotenv.config();
-
-export interface CapturedImage {
-  location: string;
-  base64: string;
-}
+import { CapturedImage } from '../../types';
+import { withRetry, withRetrySafe } from '../../infrastructure/retry/retry.service';
+import { logRetryAttempt } from '../../infrastructure/retry/retry.service';
+import { retryConfigs } from '../../config';
+import { createMediaGroup, batchImages } from './media-handler';
 
 class TelegramService {
   private bot: TelegramBot | null = null;
@@ -48,46 +44,30 @@ class TelegramService {
     if (images.length > 0) {
       console.log(`Sending ${images.length} images to Telegram...`);
 
-      // Telegram media groups support up to 10 items
-      const maxImagesPerGroup = 10;
+      const batches = batchImages(images);
 
-      for (let i = 0; i < images.length; i += maxImagesPerGroup) {
-        const batch = images.slice(i, i + maxImagesPerGroup);
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        const batchStartIndex = batchIndex * 10;
 
         // Try to send media group with retry
         const result = await withRetrySafe(
           async () => {
-            // Convert base64 images to buffers and create media group
-            const media: any[] = batch.map((img, index) => {
-              const buffer = Buffer.from(img.base64, 'base64');
-
-              return {
-                type: 'photo',
-                media: buffer,
-                fileOptions: {
-                  filename: `${img.location.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.jpg`,
-                  contentType: 'image/jpeg',
-                },
-                caption: i + index === 0 ? `CCTV Images - ${new Date().toLocaleString()}` : img.location,
-              };
-            });
-
+            const media = createMediaGroup(batch, batchStartIndex);
             await this.bot!.sendMediaGroup(this.chatId, media);
           },
           {
-            maxRetries: 3,
-            initialDelayMs: 120000, // 2 minutes
-            backoffMultiplier: 2,
+            ...retryConfigs.telegram,
             onRetry: (attempt, error, delayMs) => {
-              console.log(`\nFailed to send media group (batch ${i / maxImagesPerGroup + 1}): ${error.message}`);
-              logRetryAttempt('sendMediaGroup', attempt, 3, error, delayMs);
+              console.log(`\nFailed to send media group (batch ${batchIndex + 1}): ${error.message}`);
+              logRetryAttempt('sendMediaGroup', attempt, retryConfigs.telegram.maxRetries, error, delayMs);
             },
           }
         );
 
         // If media group failed after retries, log warning but continue
         if (!result.success) {
-          console.warn(`\n⚠️  Failed to send images (batch ${i / maxImagesPerGroup + 1}) after ${result.attempts} attempts`);
+          console.warn(`\n⚠️  Failed to send images (batch ${batchIndex + 1}) after ${result.attempts} attempts`);
           console.warn('Will still attempt to send analysis text');
 
           // Try to notify user about missing images
@@ -105,7 +85,7 @@ class TelegramService {
         }
 
         // Small delay between batches to avoid rate limiting
-        if (i + maxImagesPerGroup < images.length) {
+        if (batchIndex + 1 < batches.length) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
@@ -119,12 +99,10 @@ class TelegramService {
         });
       },
       {
-        maxRetries: 3,
-        initialDelayMs: 120000, // 2 minutes
-        backoffMultiplier: 2,
+        ...retryConfigs.telegram,
         onRetry: (attempt, error, delayMs) => {
           console.log(`\nFailed to send analysis text: ${error.message}`);
-          logRetryAttempt('sendMessage (analysis)', attempt, 3, error, delayMs);
+          logRetryAttempt('sendMessage (analysis)', attempt, retryConfigs.telegram.maxRetries, error, delayMs);
         },
       }
     );
@@ -145,12 +123,10 @@ class TelegramService {
         await this.bot!.sendMessage(this.chatId, message);
       },
       {
-        maxRetries: 3,
-        initialDelayMs: 120000, // 2 minutes
-        backoffMultiplier: 2,
+        ...retryConfigs.telegram,
         onRetry: (attempt, error, delayMs) => {
           console.log(`\nFailed to send message: ${error.message}`);
-          logRetryAttempt('sendMessage', attempt, 3, error, delayMs);
+          logRetryAttempt('sendMessage', attempt, retryConfigs.telegram.maxRetries, error, delayMs);
         },
       }
     );
@@ -172,12 +148,10 @@ class TelegramService {
         });
       },
       {
-        maxRetries: 2, // Fewer retries for error notifications
-        initialDelayMs: 60000, // 1 minute for error notifications
-        backoffMultiplier: 2,
+        ...retryConfigs.telegramError,
         onRetry: (attempt, error, delayMs) => {
           console.log(`\nFailed to send error notification: ${error.message}`);
-          logRetryAttempt('sendError', attempt, 2, error, delayMs);
+          logRetryAttempt('sendError', attempt, retryConfigs.telegramError.maxRetries, error, delayMs);
         },
       }
     );
@@ -196,7 +170,7 @@ class TelegramService {
    * Log errors locally when Telegram notification fails
    */
   private logErrorLocally(originalError: Error, notificationError?: Error): void {
-    const logDir = 'logs';
+    const logDir = 'data/logs';
     const logFile = path.join(logDir, 'telegram_errors.log');
 
     try {

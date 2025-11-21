@@ -1,50 +1,38 @@
+/**
+ * File management utilities for local storage
+ */
+
 import fs from 'fs';
 import path from 'path';
+import { CapturedImage } from '../../types';
+import { sanitizeFilename } from '../../utils/filename';
 
-export interface CapturedImage {
-  location: string;
-  base64: string;
-}
-
-const FAILED_REPORTS_DIR = 'failed_reports';
+const FAILED_REPORTS_DIR = 'data/failed_reports';
 
 /**
- * Save a failed weather report locally for manual inspection/retry
+ * Ensure directory exists
  */
-export async function saveFailedReport(
-  analysis: string,
-  images: CapturedImage[],
-  error: Error
-): Promise<string> {
-  // Create failed_reports directory if it doesn't exist
-  if (!fs.existsSync(FAILED_REPORTS_DIR)) {
-    fs.mkdirSync(FAILED_REPORTS_DIR, { recursive: true });
+export function ensureDir(dirPath: string): void {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
   }
+}
 
-  // Create a timestamp-based subdirectory for this report
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const reportDir = path.join(FAILED_REPORTS_DIR, timestamp);
-  fs.mkdirSync(reportDir, { recursive: true });
+/**
+ * Save text file
+ */
+export function saveTextFile(filePath: string, content: string): void {
+  fs.writeFileSync(filePath, content, 'utf-8');
+}
 
-  // Save the analysis text
-  const analysisFile = path.join(reportDir, 'analysis.txt');
-  fs.writeFileSync(analysisFile, analysis, 'utf-8');
-
-  // Save error information
-  const errorFile = path.join(reportDir, 'error.log');
-  const errorLog = [
-    `Timestamp: ${new Date().toISOString()}`,
-    `Error: ${error.message}`,
-    `Stack: ${error.stack}`,
-    '',
-    'This report was saved locally because it could not be sent to Telegram.',
-    'You can manually review the analysis and images in this directory.',
-  ].join('\n');
-  fs.writeFileSync(errorFile, errorLog, 'utf-8');
-
-  // Save images
-  const imagesDir = path.join(reportDir, 'images');
-  fs.mkdirSync(imagesDir, { recursive: true });
+/**
+ * Save images to directory
+ */
+export function saveImages(
+  imagesDir: string,
+  images: CapturedImage[]
+): Array<{ index: number; location: string; filename: string }> {
+  ensureDir(imagesDir);
 
   const imageMetadata: any[] = [];
 
@@ -63,12 +51,30 @@ export async function saveFailedReport(
     });
   }
 
-  // Save image metadata
-  const metadataFile = path.join(reportDir, 'images_metadata.json');
-  fs.writeFileSync(metadataFile, JSON.stringify(imageMetadata, null, 2), 'utf-8');
+  return imageMetadata;
+}
 
-  // Create a summary README
-  const readmeFile = path.join(reportDir, 'README.txt');
+/**
+ * Create report directory with timestamp
+ */
+export function createReportDirectory(): { reportDir: string; timestamp: string } {
+  ensureDir(FAILED_REPORTS_DIR);
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const reportDir = path.join(FAILED_REPORTS_DIR, timestamp);
+  ensureDir(reportDir);
+
+  return { reportDir, timestamp };
+}
+
+/**
+ * Create README file for failed report
+ */
+export function createReportReadme(
+  reportDir: string,
+  error: Error,
+  imageCount: number
+): void {
   const readme = [
     '════════════════════════════════════════════════════════════════',
     'FAILED WEATHER REPORT - SAVED LOCALLY',
@@ -94,24 +100,8 @@ export async function saveFailedReport(
     '',
     '════════════════════════════════════════════════════════════════',
   ].join('\n');
-  fs.writeFileSync(readmeFile, readme, 'utf-8');
 
-  console.log(`\nReport saved to: ${reportDir}`);
-  console.log(`  - Analysis: ${analysisFile}`);
-  console.log(`  - Images: ${imagesDir}/ (${images.length} files)`);
-  console.log(`  - Error log: ${errorFile}`);
-
-  return reportDir;
-}
-
-/**
- * Sanitize filename by removing invalid characters
- */
-function sanitizeFilename(filename: string): string {
-  return filename
-    .replace(/[^a-z0-9_\-. ]/gi, '_')
-    .replace(/\s+/g, '_')
-    .substring(0, 100);
+  saveTextFile(path.join(reportDir, 'README.txt'), readme);
 }
 
 /**
