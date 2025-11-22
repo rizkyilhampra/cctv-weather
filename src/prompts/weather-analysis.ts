@@ -1,72 +1,55 @@
-/**
- * AI prompt templates for weather analysis
- */
+import { CapturedImage } from "../types";
 
-import { CapturedImage } from '../types';
+export function generateWeatherAnalysisPrompt(
+  images: CapturedImage[],
+  greeting: string,
+  dayName: string,
+): string {
+  const locationsList = images
+    .map((img, idx) => `${idx + 1}. ${img.location}`)
+    .join("\n");
+  const userName = process.env.USER_NAME || "Sobat";
+  const timeOfDay = greeting.replace("Selamat ", "").toLowerCase();
 
-/**
- * Generate weather analysis prompt for multiple CCTV images
- */
-export function generateWeatherAnalysisPrompt(images: CapturedImage[]): string {
-  const locationsList = images.map((img, idx) => `${idx + 1}. ${img.location}`).join('\n');
+  return `You are an intelligent weather assistant analyzing ${images.length} CCTV images from Kabupaten Banjar, Martapura, Indonesia.
 
-  return `You are analyzing ${images.length} CCTV camera images from different locations in Kabupaten Banjar, Martapura, Indonesia.
-
-The locations are:
+The images are provided in this exact order:
 ${locationsList}
 
-For EACH image, determine the weather/road condition using these categories:
+INSTRUCTIONS:
+1. Analyze EACH image for:
+   - HUJAN (Active rain, splashing)
+   - BASAH (No active rain, but wet/puddles road)
+   - CERAH (Dry road, clear view)
 
-1. RAINING - Active rainfall happening now:
-   PRIMARY indicators (most important):
-   - Visible rain droplets/streaks falling in the air
-   - Heavy rain droplets on camera lens (distorting the view)
-   - Very low visibility/foggy/hazy atmosphere
-   - Water splashing from moving vehicles
+2. Write a weather update in BAHASA INDONESIA.
 
-   SECONDARY indicators (less reliable):
-   - Dark, overcast sky
-   - Note: People may use umbrellas for sun protection even when it's clear, so umbrellas alone are NOT a strong indicator
+STRUCTURE & RULES:
 
-2. WET - Recently rained, roads are wet/muddy/slippery:
-   - Roads are wet, shiny, or reflective
-   - Puddles of water visible on roads
-   - Wet surfaces on buildings/sidewalks
-   - Good visibility (not foggy)
-   - Sky may be clearing but ground is still wet
-   - No active rainfall visible
+1. **The Opening (STRICT)**: 
+   You MUST start the message EXACTLY with this sentence pattern:
+   "${greeting}, ${userName}! Berdasarkan pantauan CCTV pada ${timeOfDay} hari ini, ${dayName}, di Martapura, Kab. Banjar."
 
-3. DRY - Clear, dry conditions:
-   - Dry road surfaces (not shiny/reflective)
-   - No puddles
-   - Clear visibility
-   - Bright or normal lighting conditions
-   - No signs of recent rain
+2. **The Condition**:
+   - Describe the weather.
+   - Mention specific locations if conditions are mixed (e.g., rain in one place, dry in another).
+   - **Constraint**: Write location names in Title Case (e.g., 'A. Yani', NOT 'A. YANI').
 
-Now write a casual, friendly weather update message that flows naturally like a conversation.
+3. **The Advice**:
+   - If **HUJAN**: Tell to strictly wear a "jas hujan" and watch out for "jalan licin".
+   - If **BASAH** (Wet/Puddles/Muddy): Suggest wearing "sandal" (flip-flops) for the ride so their shoes don't get wet from splashing water.
+   - If **CERAH**: Mention that the road is safe and they can wear their normal shoes ("sepatu aman").
 
-Start with a greeting that includes today's day of week and location, like:
-- "Hey there! Here's your morning weather update for today (Monday) in Kabupaten Banjar, Martapura..."
-- "Good morning! Here's what the weather looks like today (Tuesday) for Kabupaten Banjar, Martapura..."
-- "Hey! Quick weather check for today (Wednesday) in Kabupaten Banjar, Martapura..."
+4. **The Closing**:
+   - End simply with "Hati-hati di jalan!" or "Selamat jalan!".
 
-Then continue with 2-3 sentences describing the current weather conditions. Talk directly to the reader using "you" and "your". Mention specific location names where there's rain, wet/muddy/slippery roads, or dry conditions. End with practical advice about umbrellas and waterproof footwear if needed.
-
-Important:
-- Make it flow naturally - integrate the day, location, and greeting together
-- NO separate header or title - just write it as a natural paragraph
-- Write directly and personally
-- Mention specific location names from the list above
-- Include practical advice when relevant
-- Keep it friendly and conversational throughout`;
+TONE:
+- Concise, practical, and direct.
+- Keep it in one paragraph.
+- No emojis.
+`;
 }
 
-/**
- * Generate fallback weather message when AI analysis fails
- */
-export function generateFallbackMessage(): string {
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const today = days[new Date().getDay()];
-
-  return `Hey there! Sorry, we're unable to analyze the weather conditions for today (${today}) in Kabupaten Banjar, Martapura due to a technical error. Please check back later for updates!`;
+export function generateFallbackMessage(dayName: string): string {
+  return `Maaf! Kami tidak bisa menganalisis kondisi cuaca untuk hari ini (${dayName}) di Kabupaten Banjar, Martapura karena ada kendala teknis. Silakan cek lagi nanti untuk update cuaca!`;
 }
