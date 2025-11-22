@@ -80,6 +80,7 @@ TONE:
 - Concise, practical, and direct.
 - Keep it in one paragraph.
 - No emojis.
+- No Em dash.
 `;
 }
 
