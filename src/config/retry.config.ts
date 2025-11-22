@@ -21,17 +21,17 @@ export const retryConfigs = {
     backoffMultiplier: 2,
   },
 
-  // Telegram API retries
+  // Telegram API retries (fast retries for network issues)
   telegram: {
     maxRetries: 3,
-    initialDelayMs: 120000, // 2 minutes
+    initialDelayMs: 2000, // 2 seconds
     backoffMultiplier: 2,
   },
 
-  // Telegram error notifications (shorter delays)
+  // Telegram error notifications (fewer retries, fast)
   telegramError: {
     maxRetries: 2,
-    initialDelayMs: 60000, // 1 minute
+    initialDelayMs: 1000, // 1 second
     backoffMultiplier: 2,
   },
 
