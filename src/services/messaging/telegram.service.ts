@@ -42,13 +42,17 @@ class TelegramService {
 
     // Send images first if available
     if (images.length > 0) {
-      console.log(`Sending ${images.length} images to Telegram...`);
-
       const batches = batchImages(images);
+
+      if (batches.length === 1) {
+        console.log(`Sending ${images.length} images to Telegram in 1 batch...`);
+      } else {
+        console.log(`Sending ${images.length} images to Telegram in ${batches.length} batches...`);
+      }
 
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
-        const batchStartIndex = batchIndex * 10;
+        const batchStartIndex = batches.slice(0, batchIndex).reduce((sum, b) => sum + b.length, 0);
 
         // Try to send media group with retry
         const result = await withRetrySafe(
