@@ -305,7 +305,7 @@ The system falls back to a default message. Check:
 
 ## License
 
-[Your License Here]
+[MIT](LICENSE)
 
 ## Contributing
 
