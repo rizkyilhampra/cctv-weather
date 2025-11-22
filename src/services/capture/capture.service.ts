@@ -10,6 +10,7 @@ import { analyzeMultipleImages } from '../ai/genai.service';
 import { generateWeatherAnalysisPrompt, generateFallbackMessage } from '../../prompts/weather-analysis';
 import { getCameraLocation, isCameraOnline } from './camera-selector';
 import { captureVideoFrameBase64, isVideoReady, ensureVideoPlaying } from './video-capture';
+import { getWITAGreeting } from '../../utils/time';
 
 /**
  * Capture a single camera with retry logic
@@ -182,7 +183,8 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     console.log('Analyzing weather conditions across all locations...\n');
 
-    const prompt = generateWeatherAnalysisPrompt(capturedImages);
+    const { greeting, dayName } = getWITAGreeting();
+    const prompt = generateWeatherAnalysisPrompt(capturedImages, greeting, dayName);
 
     let analysis: string;
     try {
@@ -192,7 +194,7 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
       console.error('Error analyzing images:', error);
       console.log('\nFallback analysis:');
 
-      analysis = generateFallbackMessage();
+      analysis = generateFallbackMessage(dayName);
       console.log(analysis);
     }
 
