@@ -119,16 +119,34 @@ GOOGLE_GENAI_MODEL=models/gemini-flash-latest
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 TELEGRAM_CHAT_ID=your_channel_or_chat_id
+
+# Telegram Batching Configuration
+TELEGRAM_BATCH_SIZE=5  # Max images per media group (1-10, default: 5)
 ```
 
 ## Usage
 
 ### Development Mode
+
+Development mode enables debug features for troubleshooting:
+
 ```bash
-npm run dev
+# Set NODE_ENV in .env
+NODE_ENV=development
+
+# Or run with environment variable
+NODE_ENV=development npm run dev
 ```
 
+**Debug Features:**
+- Saves captured images to `data/captures/` with timestamps
+- Logs AI token usage for cost monitoring
+- Useful for verifying camera captures before AI analysis
+
 ### Production Mode
+
+Production mode (default) only saves images when errors occur:
+
 ```bash
 # Build TypeScript
 npm run build
@@ -146,9 +164,11 @@ tsx src/index.ts
 
 1. **Capture Phase**:
    - Navigates to https://cctv.banjarkab.go.id/grid
-   - Selects online cameras
+   - Selects online cameras from camera list
+   - Automatically paginates through multiple pages if `TARGET_COUNT` exceeds cameras on current page
    - Captures video frames from configured number of cameras
    - Retries failed captures with exponential backoff
+   - Enforces capture timeout to prevent indefinite hangs
 
 2. **Analysis Phase**:
    - Sends captured images to Google Gemini AI
@@ -157,9 +177,10 @@ tsx src/index.ts
    - Falls back to default message on AI failure
 
 3. **Telegram Phase**:
-   - Sends images as media groups (up to 10 per batch)
+   - Sends images as media groups (configurable batch size via `TELEGRAM_BATCH_SIZE`, default: 5)
+   - Automatically splits large image sets into multiple batches if needed
    - Sends analysis text with markdown formatting
-   - Retries failed sends (2-minute delays)
+   - Retries failed sends with exponential backoff
    - Falls back to local storage if Telegram fails
 
 ## Exit Codes
@@ -200,8 +221,11 @@ If Telegram sending fails after all retries, the system:
 Edit `src/config/browser.config.ts` or set environment variables:
 - `CHROMIUM_PATH`: Path to Chromium executable
 - `HEADLESS`: Run browser in headless mode (true/false)
-- `PAGE_LOAD_TIMEOUT`: Page load timeout in milliseconds
-- `VIDEO_INIT_WAIT`: Wait time for videos to initialize
+- `PAGE_LOAD_TIMEOUT`: Page load timeout in milliseconds (default: 90000)
+- `SELECTOR_TIMEOUT`: Element selector timeout in milliseconds (default: 30000)
+- `VIDEO_INIT_WAIT`: Wait time for videos to initialize (default: 5000)
+- `VIDEO_READY_TIMEOUT`: Timeout for video ready state (default: 5000)
+- `CAPTURE_TIMEOUT`: Maximum time to capture a single camera in milliseconds (default: 20000)
 
 ### Capture Settings
 
