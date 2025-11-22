@@ -66,6 +66,26 @@ async function captureSingleCamera(
 }
 
 /**
+ * Capture with timeout - moves to next camera if timeout is reached
+ */
+async function captureSingleCameraWithTimeout(
+  page: Page,
+  card: Locator,
+  cameraName: string,
+  timeout: number
+): Promise<CaptureResult> {
+  return Promise.race([
+    captureSingleCamera(page, card, cameraName),
+    new Promise<CaptureResult>((resolve) =>
+      setTimeout(() => resolve({
+        success: false,
+        error: `Capture timeout after ${timeout / 1000}s`
+      }), timeout)
+    )
+  ]);
+}
+
+/**
  * Main capture and analysis function
  */
 export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
@@ -115,8 +135,13 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
 
       console.log(`[${capturedCount + 1}/${apiConfig.targetCount}] Capturing: "${title}"...`);
 
-      // Capture the camera feed
-      const result = await captureSingleCamera(page, card, title);
+      // Capture the camera feed with timeout
+      const result = await captureSingleCameraWithTimeout(
+        page,
+        card,
+        title,
+        browserConfig.captureTimeout
+      );
 
       if (result.success && result.base64Image && result.location) {
         capturedImages.push({
