@@ -20,42 +20,58 @@ INSTRUCTIONS:
 1. **Analyze EACH image carefully** using this multi-step process:
 
    STEP 1 - INTERNAL ASSESSMENT (DO NOT include this in your response):
-   For each location, estimate:
-   - What percentage (0-100%) of the visible road surface has standing water/puddles?
+   For each location, assess ONLY the main drivable area (center lanes where vehicles actually drive):
+   - What percentage (0-100%) of the DRIVABLE AREA (NOT road edges/curbs) has standing water/puddles?
    - Are there active rain splashes or just residual dampness?
+   - Where is the water located: center of road (matters) vs edges/curbs (ignore)?
    - Confidence level: How certain are you about the wetness?
 
-   STEP 2 - CLASSIFICATION (Use these strict thresholds):
-   - **HUJAN**: Active rain visible (falling rain, splashing droplets, heavy spray)
-   - **BASAH**: ≥30% of road surface has puddles or standing water (genangan air)
-     * Key indicators: Clear puddles, water pooling, reflective wet surfaces covering significant area
-     * NOT BASAH: Minor dampness, dried rain marks, or small isolated wet spots (<30%)
-   - **CERAH**: <30% wetness (dry road, or only minor residual dampness/bekas hujan)
-     * Road is mostly dry with good visibility
-     * May have some dried marks or tiny damp patches, but no significant standing water
+   CRITICAL: IGNORE puddles at road edges, curbs, or gutters. Only assess the CENTER/MAIN DRIVING LANES.
 
-   IMPORTANT RULES:
-   - Don't over-classify as BASAH! Small puddles or damp patches ≠ BASAH condition
-   - "Bekas air hujan" (dried rain marks) = CERAH, not BASAH
-   - Only call it BASAH if there's significant standing water that would splash shoes
+   STEP 2 - CLASSIFICATION (Use these STRICT thresholds):
+   - **RAINING (HUJAN)**: Active rain visible (falling rain, splashing droplets, heavy spray from vehicles)
+
+   - **WET (BASAH)**: ≥80% of the DRIVABLE CENTER AREA has standing water/puddles
+     * Must see: Large puddles in the CENTER driving lanes that vehicles would drive through
+     * Water depth enough to cause splashing when vehicles pass
+     * NOT WET: Edge puddles, small wet patches, damp surfaces, reflective roads without depth
+
+   - **DRY (CERAH)**: <20% wetness in drivable area (road is mostly dry)
+     * Road is safe to drive on with normal shoes
+     * May have: edge puddles (ignore these!), dried rain marks, minor damp patches
+     * As long as the MAIN DRIVING PATH is dry → classify as DRY
+
+   CRITICAL RULES - BE CONSERVATIVE:
+   - **When in doubt, call it DRY (CERAH)**
+   - Small puddles at road edges = IGNORE, still DRY
+   - Damp patches without actual standing water = DRY
+   - Dried rain marks = DRY
+   - Only call it WET if there's significant standing water IN THE CENTER LANES that would ACTUALLY splash shoes/pants
+
+   STEP 3 - AGGREGATE ASSESSMENT:
+   After classifying each location individually:
+   - Count how many locations are WET vs DRY
+   - Calculate: Is WET count > 50% of total locations?
+   - The MAJORITY condition wins for your overall advice
 
 2. Write a weather update in BAHASA INDONESIA based on your classification.
 
 STRUCTURE & RULES:
 
-1. **The Opening (STRICT)**: 
+1. **The Opening (STRICT)**:
    You MUST start the message EXACTLY with this sentence pattern:
    "${greeting}, ${userName}! Berdasarkan pantauan CCTV pada ${timeOfDay} hari ini, ${dayName}, di Martapura, Kab. Banjar."
 
 2. **The Condition**:
-   - Describe the weather.
-   - Mention specific locations if conditions are mixed (e.g., rain in one place, dry in another).
+   - Describe the weather based on your aggregate assessment.
+   - If conditions are MIXED (some wet, some dry): Mention specific locations and their individual conditions.
+   - If most/all are the SAME: Just describe the overall condition without listing each location.
    - **Constraint**: Write location names in Title Case (e.g., 'A. Yani', NOT 'A. YANI').
 
-3. **The Advice** (Based on your classification):
-   - If **HUJAN**: Tell to strictly wear a "jas hujan" and watch out for "jalan licin".
-   - If **BASAH** (≥30% standing water/puddles): Suggest wearing "sandal" (flip-flops) for the ride so their shoes don't get wet from splashing water.
-   - If **CERAH** (<30% wetness, mostly dry): Mention that the road is safe/dry and they can wear their normal shoes ("sepatu aman" or "jalan kering").
+3. **The Advice** (Based on AGGREGATE assessment - majority wins):
+   - If **RAINING (HUJAN)**: Tell to strictly wear a "jas hujan" and watch out for "jalan licin".
+   - If **MAJORITY WET (BASAH)** (>50% of locations have ≥80% center-lane standing water): Suggest wearing "sandal" (flip-flops) for the ride so their shoes don't get wet from splashing water.
+   - If **MAJORITY DRY (CERAH)** (>50% of locations are dry/mostly dry): Mention that the road is safe/dry and they can wear their normal shoes ("jalan kering" or "jalanan aman").
 
 4. **The Closing**:
    - End simply with "Hati-hati di jalan!" or "Selamat jalan!".
