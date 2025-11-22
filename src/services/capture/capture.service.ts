@@ -191,7 +191,7 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 
       console.log(`\n[DEBUG MODE] Saving captured images to ${capturesDir}/...\n`);
-      saveImages(capturesDir, capturedImages, timestamp);
+      await saveImages(capturesDir, capturedImages, timestamp);
     }
 
     // Analyze all images with one prompt

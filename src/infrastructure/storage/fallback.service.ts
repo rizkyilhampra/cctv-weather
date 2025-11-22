@@ -42,7 +42,7 @@ export async function saveFailedReport(
 
   // Save images
   const imagesDir = path.join(reportDir, 'images');
-  const imageMetadata = saveImages(imagesDir, images);
+  const imageMetadata = await saveImages(imagesDir, images);
 
   // Save image metadata
   const metadataFile = path.join(reportDir, 'images_metadata.json');

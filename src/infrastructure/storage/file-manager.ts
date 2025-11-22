@@ -3,6 +3,7 @@
  */
 
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { CapturedImage } from '../../types';
 import { sanitizeFilename } from '../../utils/filename';
@@ -26,36 +27,34 @@ export function saveTextFile(filePath: string, content: string): void {
 }
 
 /**
- * Save images to directory
+ * Save images to directory (async, writes in parallel)
  */
-export function saveImages(
+export async function saveImages(
   imagesDir: string,
   images: CapturedImage[],
   timestamp?: string
-): Array<{ index: number; location: string; filename: string }> {
+): Promise<Array<{ index: number; location: string; filename: string }>> {
   ensureDir(imagesDir);
-
-  const imageMetadata: any[] = [];
 
   // Use provided timestamp or generate new one
   const fileTimestamp = timestamp || new Date().toISOString().replace(/[:.]/g, '-');
 
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i];
+  // Write all images in parallel for better performance
+  const writePromises = images.map(async (img, i) => {
     const imagePath = path.join(imagesDir, `${fileTimestamp}_${i + 1}_${sanitizeFilename(img.location)}.png`);
 
     // Decode base64 and save as PNG
     const buffer = Buffer.from(img.base64, 'base64');
-    fs.writeFileSync(imagePath, buffer);
+    await fsPromises.writeFile(imagePath, buffer);
 
-    imageMetadata.push({
+    return {
       index: i + 1,
       location: img.location,
       filename: path.basename(imagePath),
-    });
-  }
+    };
+  });
 
-  return imageMetadata;
+  return Promise.all(writePromises);
 }
 
 /**
