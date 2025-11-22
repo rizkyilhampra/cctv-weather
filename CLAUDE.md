@@ -1,28 +1,35 @@
-# Claude Code Guidelines
+# Guidelines
 
-This document contains guidelines and best practices for AI assistants (like Claude) working on this codebase.
+This document contains guidelines and best practices working on this codebase.
 
 ## Code Quality Standards
 
 ### 1. Import Statements
 
 **DO:**
+
 - Use static imports at the top of the file
 - Import all dependencies before they're used
 
 ```typescript
-import path from 'path';
-import { saveImages, ensureDir } from '../../infrastructure/storage/file-manager';
+import path from "path";
+import {
+  saveImages,
+  ensureDir,
+} from "../../infrastructure/storage/file-manager";
 ```
 
 **DON'T:**
+
 - Use dynamic imports (`await import()`) unless absolutely necessary for lazy loading
 - Dynamic imports add unnecessary overhead and complexity for modules that are always available
 
 ```typescript
 // ❌ Avoid this
-const path = await import('path');
-const { saveImages } = await import('../../infrastructure/storage/file-manager');
+const path = await import("path");
+const { saveImages } = await import(
+  "../../infrastructure/storage/file-manager"
+);
 ```
 
 ## Project-Specific Conventions
@@ -51,10 +58,11 @@ const { saveImages } = await import('../../infrastructure/storage/file-manager')
 ## Common Pitfalls to Avoid
 
 1. **Dynamic imports for Node.js built-ins** - `path`, `fs`, etc. are always available
-5. **Forgetting to document environment variables** - Always update `.env.example`
+2. **Forgetting to document environment variables** - Always update `.env.example`
 
 ## Questions?
 
 If you're unsure about an implementation approach:
+
 1. Check existing patterns in the codebase
-3. When in doubt, ask the user for clarification
+2. When in doubt, ask the user for clarification
