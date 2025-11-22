@@ -17,11 +17,17 @@ import { captureVideoFrameBase64, isVideoReady, ensureVideoPlaying } from './vid
 async function captureSingleCamera(
   page: Page,
   card: Locator,
-  cameraName: string
+  cameraName: string,
+  signal?: { aborted: boolean }
 ): Promise<CaptureResult> {
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= apiConfig.maxRetries + 1; attempt++) {
+    // Check if aborted (timeout occurred)
+    if (signal?.aborted) {
+      return { success: false, error: 'Aborted due to timeout' };
+    }
+
     try {
       const videoLocator = card.locator('video');
       await videoLocator.scrollIntoViewIfNeeded();
@@ -55,10 +61,13 @@ async function captureSingleCamera(
         return { success: false, error: error.message };
       }
 
-      // Exponential backoff: 2s, 4s, 8s for browser operations (fast retries)
-      const delayMs = 2000 * Math.pow(2, attempt - 1);
-      console.log(`   Retry ${attempt}/${apiConfig.maxRetries} after ${delayMs / 1000}s...`);
-      await page.waitForTimeout(delayMs);
+      // Don't log retry if we might be aborted
+      if (!signal?.aborted) {
+        // Exponential backoff: 2s, 4s, 8s for browser operations (fast retries)
+        const delayMs = 2000 * Math.pow(2, attempt - 1);
+        console.log(`   Retry ${attempt}/${apiConfig.maxRetries} after ${delayMs / 1000}s...`);
+        await page.waitForTimeout(delayMs);
+      }
     }
   }
 
@@ -74,14 +83,21 @@ async function captureSingleCameraWithTimeout(
   cameraName: string,
   timeout: number
 ): Promise<CaptureResult> {
-  return Promise.race([
-    captureSingleCamera(page, card, cameraName),
-    new Promise<CaptureResult>((resolve) =>
-      setTimeout(() => resolve({
+  const abortSignal = { aborted: false };
+
+  const timeoutPromise = new Promise<CaptureResult>((resolve) =>
+    setTimeout(() => {
+      abortSignal.aborted = true;
+      resolve({
         success: false,
         error: `Capture timeout after ${timeout / 1000}s`
-      }), timeout)
-    )
+      });
+    }, timeout)
+  );
+
+  return Promise.race([
+    captureSingleCamera(page, card, cameraName, abortSignal),
+    timeoutPromise
   ]);
 }
 
