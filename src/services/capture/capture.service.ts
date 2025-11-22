@@ -105,6 +105,39 @@ async function captureSingleCameraWithTimeout(
 }
 
 /**
+ * Check if there's a next page available
+ */
+async function hasNextPage(page: Page): Promise<boolean> {
+  const nextLink = await page.locator('.pagination a:has-text("Next")').count();
+  return nextLink > 0;
+}
+
+/**
+ * Navigate to the next page
+ */
+async function goToNextPage(page: Page): Promise<boolean> {
+  try {
+    const nextLink = page.locator('.pagination a:has-text("Next")');
+    const count = await nextLink.count();
+
+    if (count === 0) return false;
+
+    await nextLink.click();
+
+    // Wait for new page to load
+    await page.waitForSelector('.cctv-card', { timeout: browserConfig.selectorTimeout });
+
+    // Give videos time to start loading
+    await page.waitForTimeout(browserConfig.videoInitWait);
+
+    return true;
+  } catch (error) {
+    console.error('Error navigating to next page:', error);
+    return false;
+  }
+}
+
+/**
  * Main capture and analysis function
  */
 export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
@@ -136,41 +169,63 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
     // Give videos time to start loading
     await page.waitForTimeout(browserConfig.videoInitWait);
 
-    // Find all cards
-    const cards = await page.locator('.cctv-card').all();
-    console.log(`Found ${cards.length} cameras. Capturing ${apiConfig.targetCount} live streams...\n`);
-
     let capturedCount = 0;
+    let currentPage = 1;
 
-    for (const card of cards) {
-      if (capturedCount >= apiConfig.targetCount) break;
+    // Loop through pages until we have enough captures
+    while (capturedCount < apiConfig.targetCount) {
+      // Find all cards on current page
+      const cards = await page.locator('.cctv-card').all();
+      console.log(`Page ${currentPage}: Found ${cards.length} cameras\n`);
 
-      const title = (await card.locator('.cctv-header').innerText()).trim();
+      // Process cameras on current page
+      for (const card of cards) {
+        if (capturedCount >= apiConfig.targetCount) break;
 
-      // Check if camera is online
-      if (!(await isCameraOnline(card))) {
-        continue;
+        const title = (await card.locator('.cctv-header').innerText()).trim();
+
+        // Check if camera is online
+        if (!(await isCameraOnline(card))) {
+          continue;
+        }
+
+        console.log(`[${capturedCount + 1}/${apiConfig.targetCount}] Capturing: "${title}"...`);
+
+        // Capture the camera feed with timeout
+        const result = await captureSingleCameraWithTimeout(
+          page,
+          card,
+          title,
+          browserConfig.captureTimeout
+        );
+
+        if (result.success && result.base64Image && result.location) {
+          capturedImages.push({
+            location: result.location,
+            base64: result.base64Image
+          });
+          console.log(`   ✓ Captured\n`);
+          capturedCount++;
+        } else {
+          console.error(`   ✗ Failed: ${result.error}\n`);
+        }
       }
 
-      console.log(`[${capturedCount + 1}/${apiConfig.targetCount}] Capturing: "${title}"...`);
-
-      // Capture the camera feed with timeout
-      const result = await captureSingleCameraWithTimeout(
-        page,
-        card,
-        title,
-        browserConfig.captureTimeout
-      );
-
-      if (result.success && result.base64Image && result.location) {
-        capturedImages.push({
-          location: result.location,
-          base64: result.base64Image
-        });
-        console.log(`   ✓ Captured\n`);
-        capturedCount++;
-      } else {
-        console.error(`   ✗ Failed: ${result.error}\n`);
+      // Check if we need to go to next page
+      if (capturedCount < apiConfig.targetCount) {
+        if (await hasNextPage(page)) {
+          console.log(`Moving to page ${currentPage + 1}...\n`);
+          const success = await goToNextPage(page);
+          if (success) {
+            currentPage++;
+          } else {
+            console.log('No more pages available or error navigating.\n');
+            break;
+          }
+        } else {
+          console.log('No more pages available.\n');
+          break;
+        }
       }
     }
 
