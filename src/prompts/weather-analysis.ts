@@ -8,7 +8,7 @@ export function generateWeatherAnalysisPrompt(
   const locationsList = images
     .map((img, idx) => `${idx + 1}. ${img.location}`)
     .join("\n");
-  const userName = process.env.USER_NAME || "Sobat";
+  const userName = process.env.USER_NAME || "Pengguna";
   const timeOfDay = greeting.replace("Selamat ", "").toLowerCase();
 
   return `You are an intelligent weather assistant analyzing ${images.length} CCTV images from Kabupaten Banjar, Martapura, Indonesia.
