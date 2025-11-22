@@ -6,4 +6,5 @@ dist
 # Data directories
 data/snapshots/
 data/failed_reports/
+data/captures/
 data/logs/

@@ -2,6 +2,7 @@
  * Main CCTV capture service - orchestrates browser automation and image capture
  */
 
+import path from 'path';
 import { chromium, Browser, BrowserContext, Page, Locator } from 'playwright';
 import { CapturedImage, CaptureResult, CaptureAnalysisResult } from '../../types';
 import { browserConfig, apiConfig } from '../../config';
@@ -11,6 +12,7 @@ import { generateWeatherAnalysisPrompt, generateFallbackMessage } from '../../pr
 import { getCameraLocation, isCameraOnline } from './camera-selector';
 import { captureVideoFrameBase64, isVideoReady, ensureVideoPlaying } from './video-capture';
 import { getWITAGreeting } from '../../utils/time';
+import { saveImages, ensureDir } from '../../infrastructure/storage/file-manager';
 
 /**
  * Capture a single camera with retry logic
@@ -177,6 +179,19 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
     if (capturedImages.length === 0) {
       console.error('No images were captured. Cannot perform analysis.');
       throw new Error('No images were captured');
+    }
+
+    // Save captured images in debug/development mode (before AI analysis)
+    const nodeEnv = process.env.NODE_ENV || 'production';
+    if (nodeEnv !== 'production') {
+      const capturesDir = path.join('data', 'captures');
+      ensureDir(capturesDir);
+
+      // Generate timestamp for this capture session
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+      console.log(`\n[DEBUG MODE] Saving captured images to ${capturesDir}/...\n`);
+      saveImages(capturesDir, capturedImages, timestamp);
     }
 
     // Analyze all images with one prompt

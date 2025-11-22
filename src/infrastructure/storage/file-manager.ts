@@ -30,15 +30,19 @@ export function saveTextFile(filePath: string, content: string): void {
  */
 export function saveImages(
   imagesDir: string,
-  images: CapturedImage[]
+  images: CapturedImage[],
+  timestamp?: string
 ): Array<{ index: number; location: string; filename: string }> {
   ensureDir(imagesDir);
 
   const imageMetadata: any[] = [];
 
+  // Use provided timestamp or generate new one
+  const fileTimestamp = timestamp || new Date().toISOString().replace(/[:.]/g, '-');
+
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
-    const imagePath = path.join(imagesDir, `${i + 1}_${sanitizeFilename(img.location)}.png`);
+    const imagePath = path.join(imagesDir, `${fileTimestamp}_${i + 1}_${sanitizeFilename(img.location)}.png`);
 
     // Decode base64 and save as PNG
     const buffer = Buffer.from(img.base64, 'base64');
