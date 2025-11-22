@@ -33,6 +33,17 @@ export async function generateContent(prompt: string): Promise<string> {
       const model = getModel();
       const result = await model.generateContent(prompt);
       const response = result.response;
+
+      // Log token usage
+      const usage = response.usageMetadata;
+      if (usage) {
+        console.log('Token usage:', {
+          input: usage.promptTokenCount,
+          output: usage.candidatesTokenCount,
+          total: usage.totalTokenCount
+        });
+      }
+
       return response.text();
     },
     {
@@ -62,6 +73,17 @@ export async function analyzeImage(imageBase64: string, prompt: string): Promise
 
       const result = await model.generateContent([prompt, imagePart]);
       const response = result.response;
+
+      // Log token usage
+      const usage = response.usageMetadata;
+      if (usage) {
+        console.log('Token usage:', {
+          input: usage.promptTokenCount,
+          output: usage.candidatesTokenCount,
+          total: usage.totalTokenCount
+        });
+      }
+
       return response.text();
     },
     {
@@ -99,6 +121,17 @@ export async function analyzeMultipleImages(
 
       const result = await model.generateContent(parts);
       const response = result.response;
+
+      // Log token usage
+      const usage = response.usageMetadata;
+      if (usage) {
+        console.log('Token usage:', {
+          input: usage.promptTokenCount,
+          output: usage.candidatesTokenCount,
+          total: usage.totalTokenCount
+        });
+      }
+
       return response.text();
     },
     {
