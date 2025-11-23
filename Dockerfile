@@ -8,11 +8,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
-
-# Install TypeScript and tsx for running the app
-RUN npm install -g tsx typescript
+# Install ALL dependencies (including devDependencies for build)
+RUN npm ci
 
 # Copy source code
 COPY tsconfig.json ./
@@ -23,6 +20,9 @@ RUN mkdir -p data/snapshots data/captures
 
 # Build the project
 RUN npm run build
+
+# Remove devDependencies after build to reduce image size
+RUN npm prune --production
 
 # Set environment variables (can be overridden by docker-compose or docker run)
 ENV NODE_ENV=production
