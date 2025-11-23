@@ -31,9 +31,11 @@ cctv-weather/
 │   │   │   └── video-capture.ts
 │   │   ├── ai/              # AI analysis service
 │   │   │   └── genai.service.ts
-│   │   └── messaging/       # Telegram service
-│   │       ├── telegram.service.ts
-│   │       └── media-handler.ts
+│   │   ├── messaging/       # Telegram service
+│   │   │   ├── telegram.service.ts
+│   │   │   └── media-handler.ts
+│   │   └── scheduler/       # Task scheduler
+│   │       └── scheduler.service.ts
 │   │
 │   ├── infrastructure/      # External integrations
 │   │   ├── retry/           # Retry mechanism
@@ -126,6 +128,83 @@ TELEGRAM_BATCH_SIZE=5  # Max images per media group (1-10, default: 5)
 
 ## Usage
 
+### Running with Docker (Recommended)
+
+#### Production Mode (Scheduled, Long-Running)
+
+The application runs as a scheduled service inside Docker. In production, the scheduler is **always enabled**:
+
+```bash
+# Start the service (production mode, scheduler enabled by default)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop the service
+docker-compose down
+```
+
+The app will:
+- Start and wait for the scheduled execution time
+- Run the capture/analysis/reporting task at configured times
+- Continue running and repeat on the next scheduled time
+- Automatically restart if it crashes (Docker restart policy)
+
+#### Development Mode (Immediate Execution)
+
+For development/testing, you can disable the scheduler to run immediately:
+
+```bash
+# Set in .env
+NODE_ENV=development
+ENABLE_SCHEDULER=  # Leave empty or set to 'false'
+
+# Or use environment variable override
+NODE_ENV=development docker-compose up
+```
+
+This will:
+- Run the task immediately on startup
+- Exit after completion (no scheduling)
+- Useful for testing and debugging
+
+### Schedule Configuration
+
+Configure the execution schedule in `.env`:
+
+```env
+# Run once daily at 5:00 AM Asia/Makassar time (WITA, GMT+8)
+SCHEDULE_TIMES=05:00
+TZ=Asia/Makassar
+```
+
+**Multiple times per day:**
+```env
+# Run at 5:00 AM and 5:00 PM (use 17:00, not 05:00 PM)
+SCHEDULE_TIMES=05:00,17:00
+TZ=Asia/Makassar
+```
+
+**Other examples:**
+```env
+# Three times daily
+SCHEDULE_TIMES=06:00,12:00,18:00
+
+# Different timezone (Jakarta - WIB, GMT+7)
+SCHEDULE_TIMES=05:00
+TZ=Asia/Jakarta
+```
+
+**Important notes:**
+- Times are in **24-hour format** (HH:MM)
+- Use `17:00` for 5:00 PM, not `05:00 PM`
+- All times run **daily** (same times every day)
+- Times are comma-separated with no spaces
+- Timezone uses IANA identifiers (e.g., `Asia/Makassar`, `Asia/Jakarta`)
+
+The scheduler automatically converts your local times to UTC internally.
+
 ### Development Mode
 
 Development mode enables debug features for troubleshooting:
@@ -134,8 +213,8 @@ Development mode enables debug features for troubleshooting:
 # Set NODE_ENV in .env
 NODE_ENV=development
 
-# Or run with environment variable
-NODE_ENV=development npm run dev
+# Rebuild and restart
+docker-compose up -d --build
 ```
 
 **Debug Features:**
@@ -143,77 +222,73 @@ NODE_ENV=development npm run dev
 - Logs AI token usage for cost monitoring
 - Useful for verifying camera captures before AI analysis
 
-### Production Mode
+### Running Locally (Without Docker)
 
-Production mode (default) only saves images when errors occur:
+For local development and testing:
 
 ```bash
-# Build TypeScript
-npm run build
+# Install dependencies
+npm install
+
+# Install Playwright browsers
+npx playwright install chrome
+
+# Configure .env file
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+**Immediate mode (run once and exit):**
+```bash
+# Set in .env
+NODE_ENV=development
+ENABLE_SCHEDULER=  # Leave empty
 
 # Run
 npm start
 ```
 
-### Running Directly
+**Scheduled mode (long-running):**
 ```bash
-tsx src/index.ts
+# Set in .env
+NODE_ENV=development
+ENABLE_SCHEDULER=true
+
+# Run
+npm start
 ```
 
-### Scheduled Execution with Cron
-
-To run the application automatically at 5AM GMT+8 (21:00 UTC) daily:
-
-**Step 1: Open crontab editor**
+**Development mode with auto-restart:**
 ```bash
-crontab -e
-```
-
-**Step 2: Add the following cron entry**
-
-Replace `/path/to/cctv-weather` with your actual project directory:
-
-```cron
-0 21 * * * cd /path/to/cctv-weather && docker-compose up --abort-on-container-exit && docker-compose down >> logs/cron.log 2>&1
-```
-
-For example, if your project is in `/home/aquila/Projects/cctv-weather`:
-```cron
-0 21 * * * cd /home/aquila/Projects/cctv-weather && docker-compose up --abort-on-container-exit && docker-compose down >> logs/cron.log 2>&1
-```
-
-**Step 3: Save and exit**
-- For nano: Press `Ctrl+X`, then `Y`, then `Enter`
-- For vim: Press `Esc`, type `:wq`, then `Enter`
-
-**Step 4: Verify the cron job is installed**
-```bash
-crontab -l
-```
-
-**Step 5: Create logs directory if it doesn't exist**
-```bash
-mkdir -p /path/to/cctv-weather/logs
-```
-
-**Understanding the cron schedule:**
-- `0 21 * * *` means: At 21:00 (9 PM) UTC every day
-- 21:00 UTC = 5:00 AM GMT+8
-- `--abort-on-container-exit` stops compose when app finishes
-- `docker-compose down` cleans up containers after run
-- `>> logs/cron.log 2>&1` redirects all output to log file
-
-**To view logs:**
-```bash
-tail -f logs/cron.log
-```
-
-**To remove the cron job:**
-```bash
-crontab -e  # Then delete the line and save
+npm run dev
 ```
 
 ## How It Works
+
+### Scheduling System
+
+The application runs continuously as a long-running service:
+
+1. **Initialization**:
+   - Reads `SCHEDULE_TIMES` (comma-separated times in HH:MM format) and `TZ` (IANA timezone)
+   - Converts each time from your timezone to UTC for scheduling
+   - Creates a daily scheduled task for each specified time
+   - Starts the scheduler and waits for scheduled execution times
+
+2. **Scheduled Execution**:
+   - At each scheduled time, executes the capture/analysis/reporting workflow
+   - Logs all execution details with timestamps (both UTC and local time)
+   - Continues running even if a task fails (for resilience)
+   - Waits for the next scheduled time
+
+3. **Graceful Shutdown**:
+   - Handles SIGTERM and SIGINT signals
+   - Stops all scheduled tasks cleanly
+   - Ensures no orphaned processes
+
+### Task Execution Workflow
+
+Each scheduled execution runs the following phases:
 
 1. **Capture Phase**:
    - Navigates to https://cctv.banjarkab.go.id/grid
@@ -236,11 +311,13 @@ crontab -e  # Then delete the line and save
    - Retries failed sends with exponential backoff
    - Falls back to local storage if Telegram fails
 
-## Exit Codes
+### Execution Status
 
-- `0`: Complete success (capture, analysis, and Telegram send succeeded)
-- `1`: Partial success (capture/analysis succeeded, Telegram failed)
-- `2`: Total failure (capture or analysis failed)
+Each task execution logs its status:
+
+- **Complete success**: Capture, analysis, and Telegram send all succeeded
+- **Partial success**: Capture/analysis succeeded, but Telegram failed (saved locally)
+- **Total failure**: Capture or analysis failed (no data to send)
 
 ## Retry Mechanism
 
@@ -268,6 +345,39 @@ If Telegram sending fails after all retries, the system:
    - `README.txt` - Summary and next steps
 
 ## Configuration
+
+### Environment Settings
+
+Set in `.env`:
+- `NODE_ENV`: Environment mode (`production` or `development`)
+  - **Production**: Scheduler always enabled, minimal logging
+  - **Development**: Scheduler controlled by `ENABLE_SCHEDULER`, debug logging enabled
+- `ENABLE_SCHEDULER`: Control scheduler behavior
+  - **In production**: Ignored (scheduler always enabled)
+  - **In development**:
+    - `true`, `1`, or `yes` = Scheduled mode (long-running)
+    - Unset or `false` = Immediate mode (run once and exit)
+
+### Schedule Settings
+
+Set in `.env`:
+- `SCHEDULE_TIMES`: Comma-separated times in 24-hour format (default: `05:00`)
+- `TZ`: IANA timezone identifier (default: `Asia/Makassar`)
+
+**Time format:**
+- Use 24-hour format: `HH:MM`
+- Multiple times separated by commas: `05:00,17:00`
+- Times run daily (same times every day)
+
+**Timezone examples:**
+- `Asia/Makassar` - WITA (GMT+8): Makassar, Banjarmasin, Balikpapan
+- `Asia/Jakarta` - WIB (GMT+7): Jakarta, Bandung, Surabaya
+- `Asia/Jayapura` - WIT (GMT+9): Jayapura, Manokwari
+- `Asia/Singapore` - SGT (GMT+8)
+- `Asia/Manila` - PHT (GMT+8)
+- `UTC` - Universal Coordinated Time
+
+**Complete list:** See [IANA timezone database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
 
 ### Browser Settings
 

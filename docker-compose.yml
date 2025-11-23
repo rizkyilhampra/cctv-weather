@@ -3,9 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    restart: "no"
+    restart: unless-stopped
     environment:
       - NODE_ENV=${NODE_ENV:-production}
+      - ENABLE_SCHEDULER=${ENABLE_SCHEDULER:-}
       - HEADLESS=${HEADLESS:-true}
       - BROWSER_CHANNEL=chrome
       - TARGET_COUNT=${TARGET_COUNT:-3}
@@ -16,6 +17,8 @@ services:
       - VIDEO_INIT_WAIT=${VIDEO_INIT_WAIT:-5000}
       - VIDEO_READY_TIMEOUT=${VIDEO_READY_TIMEOUT:-5000}
       - CAPTURE_TIMEOUT=${CAPTURE_TIMEOUT:-20000}
+      - SCHEDULE_TIMES=${SCHEDULE_TIMES:-05:00}
+      - TZ=${TZ:-Asia/Makassar}
       - GOOGLE_GENAI_API_KEY=${GOOGLE_GENAI_API_KEY}
       - GOOGLE_GENAI_MODEL=${GOOGLE_GENAI_MODEL:-models/gemini-flash-latest}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
