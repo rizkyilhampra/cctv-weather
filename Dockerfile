@@ -11,6 +11,9 @@ COPY package*.json ./
 # Install ALL dependencies (including devDependencies for build)
 RUN npm ci
 
+# Install Playwright browsers (Chrome with H.264 codec support)
+RUN npx playwright install chrome --with-deps
+
 # Copy source code
 COPY tsconfig.json ./
 COPY src ./src
