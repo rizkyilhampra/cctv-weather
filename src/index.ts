@@ -265,24 +265,54 @@ async function runScheduledMode() {
  * Run in immediate mode (execute once and exit)
  */
 async function runImmediateMode() {
-  // Read source from environment or default to banjarkab
-  const source = (process.env.CCTV_SOURCE || 'banjarkab') as CCTVSource;
-  const sourceConfig = getSourceConfig(source);
-
   console.log(`Mode: IMMEDIATE (run once and exit)\n`);
-  console.log(`Source: ${sourceConfig.displayName}\n`);
 
-  try {
-    await executeTask(source);
+  // Check if CCTV_SOURCE is set to determine execution mode
+  const cctvSource = process.env.CCTV_SOURCE;
+
+  if (cctvSource === undefined || cctvSource.trim() === '') {
+    // No specific source set - run both sources synchronously
+    console.log('CCTV_SOURCE not set - running BOTH sources synchronously...\n');
+
+    const sources: CCTVSource[] = ['banjarkab', 'banjarbaru'];
+
+    for (const source of sources) {
+      const sourceConfig = getSourceConfig(source);
+      console.log(`Processing source: ${sourceConfig.displayName}\n`);
+
+      try {
+        await executeTask(source);
+        console.log(`\n✓ Completed processing: ${sourceConfig.displayName}\n`);
+        console.log('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n');
+      } catch (error) {
+        console.error(`\n✗ Failed to process ${sourceConfig.displayName}:`, error);
+        console.log('Continuing with next source...\n');
+      }
+    }
+
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('Task completed. Exiting.');
+    console.log('Completed processing all sources. Exiting.');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     process.exit(0);
-  } catch (error) {
-    console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('Task failed:', error);
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    process.exit(1);
+  } else {
+    // Specific source is set - run only that source (original behavior)
+    const source = cctvSource as CCTVSource;
+    const sourceConfig = getSourceConfig(source);
+
+    console.log(`Source: ${sourceConfig.displayName}\n`);
+
+    try {
+      await executeTask(source);
+      console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('Task completed. Exiting.');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      process.exit(0);
+    } catch (error) {
+      console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('Task failed:', error);
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      process.exit(1);
+    }
   }
 }
 

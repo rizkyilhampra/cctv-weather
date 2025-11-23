@@ -221,26 +221,32 @@ SCHEDULE_TIMES=05:00,15:00
 
 #### Immediate Mode (Manual Testing)
 
-Test individual sources without scheduling:
+Test sources without scheduling:
 
 ```bash
-# Test Banjarkab scraper only
-npm run start:banjarkab
+# Test BOTH sources synchronously (when CCTV_SOURCE is unset/empty)
+npm start
 
-# Test Banjarbaru scraper only
-npm run start:banjarbaru
-
-# Or use environment variable
+# Test individual sources only
+CCTV_SOURCE=banjarkab npm start
 CCTV_SOURCE=banjarbaru npm start
+
+# Or use the predefined scripts
+npm run start:banjarkab  # Banjarkab only
+npm run start:banjarbaru  # Banjarbaru only
 ```
 
 **Available scripts:**
 - `npm start` - Run with scheduler (production) or immediate mode (development)
+  - When scheduler disabled and `CCTV_SOURCE` unset: processes both sources
+  - When scheduler disabled and `CCTV_SOURCE` set: processes only specified source
 - `npm run start:banjarkab` - Test Banjarkab source immediately
 - `npm run start:banjarbaru` - Test Banjarbaru source immediately
 - `npm run dev` - Watch mode (respects `CCTV_SOURCE`)
-- `npm run dev:banjarkab` - Watch mode for Banjarkab
-- `npm run dev:banjarbaru` - Watch mode for Banjarbaru
+  - When `CCTV_SOURCE` unset: processes both sources in watch mode
+  - When `CCTV_SOURCE` set: processes only specified source in watch mode
+- `npm run dev:banjarkab` - Watch mode for Banjarkab only
+- `npm run dev:banjarbaru` - Watch mode for Banjarbaru only
 
 #### Source-Specific Differences
 
@@ -366,9 +372,16 @@ cp .env.example .env
 NODE_ENV=development
 ENABLE_SCHEDULER=  # Leave empty
 
-# Run
+# Run - processes BOTH sources synchronously when CCTV_SOURCE is unset
 npm start
+
+# Or specify a single source
+CCTV_SOURCE=banjarkab npm start
+CCTV_SOURCE=banjarbaru npm start
 ```
+
+**Dual-Source Immediate Mode:**
+When `CCTV_SOURCE` is unset or empty in immediate mode, the application will process both sources synchronously (one after the other) rather than just one source.
 
 **Scheduled mode (long-running):**
 ```bash
