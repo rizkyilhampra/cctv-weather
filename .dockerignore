@@ -1,0 +1,45 @@
+# Node modules
+node_modules
+npm-debug.log
+
+# Build output
+dist
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Data directories (will be mounted as volumes)
+data/snapshots/*
+data/captures/*
+!data/snapshots/.gitkeep
+!data/captures/.gitkeep
+
+# Logs
+*.log
+capture_errors.log
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+CLAUDE.md
+LICENSE
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml

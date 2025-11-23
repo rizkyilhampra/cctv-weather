@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  cctv-weather:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cctv-weather
+    restart: unless-stopped
+
+    # Required for Chrome to avoid memory issues
+    ipc: host
+
+    # Environment variables
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - HEADLESS=${HEADLESS:-true}
+      - BROWSER_CHANNEL=chrome
+
+      # Capture Configuration
+      - TARGET_COUNT=${TARGET_COUNT:-3}
+      - OUTPUT_DIR=/app/data/snapshots
+      - MAX_RETRIES=${MAX_RETRIES:-2}
+
+      # Timeouts
+      - PAGE_LOAD_TIMEOUT=${PAGE_LOAD_TIMEOUT:-90000}
+      - SELECTOR_TIMEOUT=${SELECTOR_TIMEOUT:-30000}
+      - VIDEO_INIT_WAIT=${VIDEO_INIT_WAIT:-5000}
+      - VIDEO_READY_TIMEOUT=${VIDEO_READY_TIMEOUT:-5000}
+      - CAPTURE_TIMEOUT=${CAPTURE_TIMEOUT:-20000}
+
+      # Google GenAI
+      - GOOGLE_GENAI_API_KEY=${GOOGLE_GENAI_API_KEY}
+      - GOOGLE_GENAI_MODEL=${GOOGLE_GENAI_MODEL:-models/gemini-flash-latest}
+
+      # Telegram Bot
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - TELEGRAM_BATCH_SIZE=${TELEGRAM_BATCH_SIZE:-5}
+
+      # CCTV URL (add this to your .env if needed)
+      - CCTV_URL=${CCTV_URL}
+
+    # Mount volumes for persistent data
+    volumes:
+      - ./data/snapshots:/app/data/snapshots
+      - ./data/captures:/app/data/captures
+      - ./logs:/app/logs
+
+    # Use .env file for secrets
+    env_file:
+      - .env
+
+    # Security options
+    security_opt:
+      - seccomp:unconfined
+
+    # Resource limits (optional, adjust as needed)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
