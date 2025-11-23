@@ -1,12 +1,17 @@
 # CCTV Weather Analysis
 
-Automated weather monitoring system that captures CCTV camera feeds from Kabupaten Banjar, Martapura, Indonesia, analyzes weather conditions using Google's Gemini AI, and publishes conversational weather reports to Telegram.
+Automated weather monitoring system that captures CCTV camera feeds from two sources in South Kalimantan, Indonesia:
+- **Kabupaten Banjar** (Banjarkab): https://cctv.banjarkab.go.id/grid
+- **Kota Banjarbaru** (Banjarbaru): https://cctv.banjarbarukota.go.id/CCTV
+
+The system analyzes weather conditions using Google's Gemini AI and publishes conversational weather reports to Telegram.
 
 ## Features
 
-- **Automated CCTV Capture**: Browser automation using Playwright to capture live camera feeds
+- **Dual-Source CCTV Capture**: Browser automation using Playwright to capture live feeds from both locations
 - **AI Weather Analysis**: Google Gemini Flash analyzes multiple images to determine weather conditions (raining, wet, or dry)
 - **Telegram Integration**: Publishes weather reports with images to Telegram channels
+- **Scheduled Dual-Source Execution**: Configure different times for each CCTV source
 - **Robust Error Handling**:
   - Exponential backoff retry mechanism
   - Transient vs permanent error classification
@@ -169,31 +174,148 @@ This will:
 - Exit after completion (no scheduling)
 - Useful for testing and debugging
 
-### Schedule Configuration
+### Schedule Configuration (Dual-Source Mode)
 
-Configure the execution schedule in `.env`:
+The application supports monitoring two CCTV sources with independent schedules:
+
+1. **Kabupaten Banjar (Banjarkab)**: https://cctv.banjarkab.go.id/grid
+2. **Kota Banjarbaru (Banjarbaru)**: https://cctv.banjarbarukota.go.id/CCTV
+
+#### Production Mode (Scheduled Execution)
+
+In production, **exactly 2 times must be configured** in `SCHEDULE_TIMES`:
 
 ```env
-# Run once daily at 5:00 AM Asia/Makassar time (WITA, GMT+8)
-SCHEDULE_TIMES=05:00
+# MUST have exactly 2 times
+# Format: time1,time2
+# First time = Banjarkab scraper
+# Second time = Banjarbaru scraper
+SCHEDULE_TIMES=05:00,15:00
 TZ=Asia/Makassar
 ```
 
-**Multiple times per day:**
-```env
-# Run at 5:00 AM and 5:00 PM (use 17:00, not 05:00 PM)
-SCHEDULE_TIMES=05:00,17:00
-TZ=Asia/Makassar
-```
+**Example execution:**
+- 05:00 WITA (5:00 AM) → Captures from **Banjarkab**
+- 15:00 WITA (3:00 PM) → Captures from **Banjarbaru**
 
 **Other examples:**
 ```env
-# Three times daily
-SCHEDULE_TIMES=06:00,12:00,18:00
+# Morning and evening
+SCHEDULE_TIMES=06:00,18:00  → Banjarkab at 6 AM, Banjarbaru at 6 PM
 
-# Different timezone (Jakarta - WIB, GMT+7)
+# Early morning and afternoon
+SCHEDULE_TIMES=07:00,14:00  → Banjarkab at 7 AM, Banjarbaru at 2 PM
+```
+
+**⚠️ Important:** The application will **exit with an error** if `SCHEDULE_TIMES` does not have exactly 2 values:
+```env
+# ✗ Invalid - only 1 time
 SCHEDULE_TIMES=05:00
-TZ=Asia/Jakarta
+
+# ✗ Invalid - 3 times
+SCHEDULE_TIMES=05:00,12:00,18:00
+
+# ✓ Valid - exactly 2 times
+SCHEDULE_TIMES=05:00,15:00
+```
+
+#### Immediate Mode (Manual Testing)
+
+Test individual sources without scheduling:
+
+```bash
+# Test Banjarkab scraper only
+npm run start:banjarkab
+
+# Test Banjarbaru scraper only
+npm run start:banjarbaru
+
+# Or use environment variable
+CCTV_SOURCE=banjarbaru npm start
+```
+
+**Available scripts:**
+- `npm start` - Run with scheduler (production) or immediate mode (development)
+- `npm run start:banjarkab` - Test Banjarkab source immediately
+- `npm run start:banjarbaru` - Test Banjarbaru source immediately
+- `npm run dev` - Watch mode (respects `CCTV_SOURCE`)
+- `npm run dev:banjarkab` - Watch mode for Banjarkab
+- `npm run dev:banjarbaru` - Watch mode for Banjarbaru
+
+#### Source-Specific Differences
+
+| Feature | Banjarkab | Banjarbaru |
+|---------|-----------|------------|
+| **URL** | cctv.banjarkab.go.id/grid | cctv.banjarbarukota.go.id/CCTV |
+| **Video Tech** | Direct HLS streaming | Alpine.js + HLS.js |
+| **Interaction** | Auto-play videos | Click to load videos |
+| **Pagination** | Yes | No |
+| **Error Detection** | `.error-msg` element | `error.png` image |
+| **Online Indicator** | `.status-badge.online` | HLS load success |
+| **Filtering** | Not supported | Keyword filter (env: `BANJARBARU_FILTER`) |
+
+#### Camera Filtering (Banjarbaru Only)
+
+Filter Banjarbaru cameras by keyword to capture only specific locations:
+
+```env
+# Capture only cameras with "cempaka" in the title
+BANJARBARU_FILTER=cempaka
+TARGET_COUNT=3,5  # Banjarkab: 3, Banjarbaru: 5 cameras matching "cempaka"
+```
+
+**Examples:**
+```env
+# Only Cempaka area cameras
+BANJARBARU_FILTER=cempaka
+
+# Only bridge (jembatan) cameras
+BANJARBARU_FILTER=jembatan
+
+# Only roundabout (bundaran) cameras
+BANJARBARU_FILTER=bundaran
+
+# No filter - capture all cameras (default)
+BANJARBARU_FILTER=
+```
+
+**How it works:**
+- Case-insensitive matching (e.g., "CEMPAKA" matches "Jembatan Cempaka 1")
+- Partial match (e.g., "cempaka" matches "CCTV CEMPAKA 2")
+- Only affects Banjarbaru source
+- If set, only cameras with matching titles will be captured
+
+#### Target Count Configuration
+
+Configure how many cameras to capture from each source:
+
+```env
+# Same count for both sources
+TARGET_COUNT=3  # 3 from Banjarkab, 3 from Banjarbaru
+
+# Different counts per source
+TARGET_COUNT=5,10  # 5 from Banjarkab, 10 from Banjarbaru
+```
+
+**Format:** `count` or `count1,count2`
+- Single value: Both sources use the same count
+- Two values: First = Banjarkab, Second = Banjarbaru
+
+**Examples:**
+```env
+# Equal distribution
+TARGET_COUNT=5  # 5 cameras from each source
+
+# More from Banjarbaru
+TARGET_COUNT=3,10  # 3 from Banjarkab, 10 from Banjarbaru
+
+# More from Banjarkab
+TARGET_COUNT=10,3  # 10 from Banjarkab, 3 from Banjarbaru
+
+# Combined with filter (only Banjarbaru affected)
+TARGET_COUNT=5,8
+BANJARBARU_FILTER=cempaka  # Banjarbaru: 8 cameras matching "cempaka"
+                           # Banjarkab: 5 cameras (no filter)
 ```
 
 **Important notes:**

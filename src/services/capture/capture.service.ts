@@ -5,12 +5,14 @@
 import path from 'path';
 import { chromium, Browser, BrowserContext, Page, Locator } from 'playwright';
 import { CapturedImage, CaptureResult, CaptureAnalysisResult } from '../../types';
+import { SourceConfig } from '../../types/source.types';
 import { browserConfig, apiConfig } from '../../config';
 import { isPermanentError } from '../../infrastructure/retry/error-classifier';
 import { analyzeMultipleImages } from '../ai/genai.service';
 import { generateWeatherAnalysisPrompt, generateFallbackMessage } from '../../prompts/weather-analysis';
 import { getCameraLocation, isCameraOnline } from './camera-selector';
 import { captureVideoFrameBase64, isVideoReady, ensureVideoPlaying } from './video-capture';
+import { waitForAlpineReady, loadVideoViaAlpine, isHLSVideoLoaded } from './alpine-interaction';
 import { getWITAGreeting } from '../../utils/time';
 import { saveImages, ensureDir } from '../../infrastructure/storage/file-manager';
 
@@ -21,6 +23,7 @@ async function captureSingleCamera(
   page: Page,
   card: Locator,
   cameraName: string,
+  sourceConfig: SourceConfig,
   signal?: { aborted: boolean }
 ): Promise<CaptureResult> {
   let lastError: Error | null = null;
@@ -32,7 +35,7 @@ async function captureSingleCamera(
     }
 
     try {
-      const videoLocator = card.locator('video');
+      const videoLocator = card.locator(sourceConfig.selectors.videoElement);
       await videoLocator.scrollIntoViewIfNeeded();
 
       // Ensure video is playing
@@ -84,7 +87,8 @@ async function captureSingleCameraWithTimeout(
   page: Page,
   card: Locator,
   cameraName: string,
-  timeout: number
+  timeout: number,
+  sourceConfig: SourceConfig
 ): Promise<CaptureResult> {
   const abortSignal = { aborted: false };
 
@@ -99,7 +103,7 @@ async function captureSingleCameraWithTimeout(
   );
 
   return Promise.race([
-    captureSingleCamera(page, card, cameraName, abortSignal),
+    captureSingleCamera(page, card, cameraName, sourceConfig, abortSignal),
     timeoutPromise
   ]);
 }
@@ -107,17 +111,24 @@ async function captureSingleCameraWithTimeout(
 /**
  * Check if there's a next page available
  */
-async function hasNextPage(page: Page): Promise<boolean> {
-  const nextLink = await page.locator('.pagination a:has-text("Next")').count();
+async function hasNextPage(page: Page, pagination?: SourceConfig['selectors']['pagination']): Promise<boolean> {
+  if (!pagination) return false;
+
+  const nextLink = await page.locator(pagination.hasNext).count();
   return nextLink > 0;
 }
 
 /**
  * Navigate to the next page
  */
-async function goToNextPage(page: Page): Promise<boolean> {
+async function goToNextPage(
+  page: Page,
+  sourceConfig: SourceConfig
+): Promise<boolean> {
+  if (!sourceConfig.selectors.pagination) return false;
+
   try {
-    const nextLink = page.locator('.pagination a:has-text("Next")');
+    const nextLink = page.locator(sourceConfig.selectors.pagination.nextButton);
     const count = await nextLink.count();
 
     if (count === 0) return false;
@@ -125,7 +136,9 @@ async function goToNextPage(page: Page): Promise<boolean> {
     await nextLink.click();
 
     // Wait for new page to load
-    await page.waitForSelector('.cctv-card', { timeout: browserConfig.selectorTimeout });
+    await page.waitForSelector(sourceConfig.selectors.cardContainer, {
+      timeout: browserConfig.selectorTimeout
+    });
 
     // Give videos time to start loading
     await page.waitForTimeout(browserConfig.videoInitWait);
@@ -140,8 +153,8 @@ async function goToNextPage(page: Page): Promise<boolean> {
 /**
  * Main capture and analysis function
  */
-export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
-  console.log('Starting CCTV Weather Analysis...\n');
+export async function captureAndAnalyze(sourceConfig: SourceConfig): Promise<CaptureAnalysisResult> {
+  console.log(`Starting CCTV Weather Analysis for ${sourceConfig.displayName}...\n`);
 
   // Launch browser
   const browser: Browser = await chromium.launch({
@@ -157,15 +170,27 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
   const capturedImages: CapturedImage[] = [];
 
   try {
-    console.log('Navigating to CCTV Grid...');
-    await page.goto(apiConfig.cctvUrl, {
+    console.log(`Navigating to ${sourceConfig.url}...`);
+    await page.goto(sourceConfig.url, {
       waitUntil: 'load',
       timeout: browserConfig.pageLoadTimeout,
     });
 
-    // Wait for CCTV cards to be visible
-    await page.waitForSelector('.cctv-card', { timeout: browserConfig.selectorTimeout });
-    console.log('Page loaded, waiting for streams to initialize...\n');
+    // Wait for camera cards to be visible
+    await page.waitForSelector(sourceConfig.selectors.cardContainer, {
+      timeout: browserConfig.selectorTimeout
+    });
+
+    // Banjarbaru-specific: Wait for Alpine.js
+    if (sourceConfig.requiresClick && sourceConfig.alpineWaitTime) {
+      console.log('Waiting for Alpine.js to initialize...');
+      const alpineReady = await waitForAlpineReady(page, sourceConfig.alpineWaitTime);
+      if (!alpineReady) {
+        console.warn('Alpine.js may not be ready, proceeding anyway...');
+      }
+    }
+
+    console.log('Page loaded, waiting for initialization...\n');
 
     // Give videos time to start loading
     await page.waitForTimeout(browserConfig.videoInitWait);
@@ -173,31 +198,66 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
     let capturedCount = 0;
     let currentPage = 1;
 
+    // Use source-specific target count if configured, otherwise use global default
+    const targetCount = sourceConfig.targetCount ?? apiConfig.targetCount;
+
+    console.log(`Target: ${targetCount} camera(s)`);
+    if (sourceConfig.filterKeyword) {
+      console.log(`Filter: Only cameras matching "${sourceConfig.filterKeyword}" (case-insensitive)\n`);
+    } else {
+      console.log();
+    }
+
     // Loop through pages until we have enough captures
-    while (capturedCount < apiConfig.targetCount) {
+    while (capturedCount < targetCount) {
       // Find all cards on current page
-      const cards = await page.locator('.cctv-card').all();
+      const cards = await page.locator(sourceConfig.selectors.cardContainer).all();
       console.log(`Page ${currentPage}: Found ${cards.length} cameras\n`);
 
       // Process cameras on current page
       for (const card of cards) {
-        if (capturedCount >= apiConfig.targetCount) break;
+        if (capturedCount >= targetCount) break;
 
-        const title = (await card.locator('.cctv-header').innerText()).trim();
+        const title = (await card.locator(sourceConfig.selectors.cardTitle).innerText()).trim();
+
+        // Apply filter if configured (case-insensitive match)
+        if (sourceConfig.filterKeyword) {
+          const matchesFilter = title.toLowerCase().includes(sourceConfig.filterKeyword.toLowerCase());
+          if (!matchesFilter) {
+            // Skip cameras that don't match the filter
+            continue;
+          }
+        }
 
         // Check if camera is online
-        if (!(await isCameraOnline(card))) {
+        if (!(await isCameraOnline(card, sourceConfig.selectors))) {
           continue;
         }
 
-        console.log(`[${capturedCount + 1}/${apiConfig.targetCount}] Capturing: "${title}"...`);
+        console.log(`[${capturedCount + 1}/${targetCount}] Capturing: "${title}"...`);
+
+        // Banjarbaru-specific: Trigger video loading via Alpine.js click
+        if (sourceConfig.requiresClick) {
+          const clicked = await loadVideoViaAlpine(page, card);
+          if (!clicked) {
+            console.error(`   ✗ Failed to trigger video load\n`);
+            continue;
+          }
+
+          // Check if HLS loaded successfully (not error.png)
+          if (!(await isHLSVideoLoaded(card))) {
+            console.error(`   ✗ Video failed to load (showing error)\n`);
+            continue;
+          }
+        }
 
         // Capture the camera feed with timeout
         const result = await captureSingleCameraWithTimeout(
           page,
           card,
           title,
-          browserConfig.captureTimeout
+          browserConfig.captureTimeout,
+          sourceConfig
         );
 
         if (result.success && result.base64Image && result.location) {
@@ -213,10 +273,10 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
       }
 
       // Check if we need to go to next page
-      if (capturedCount < apiConfig.targetCount) {
-        if (await hasNextPage(page)) {
+      if (capturedCount < targetCount) {
+        if (await hasNextPage(page, sourceConfig.selectors.pagination)) {
           console.log(`Moving to page ${currentPage + 1}...\n`);
-          const success = await goToNextPage(page);
+          const success = await goToNextPage(page, sourceConfig);
           if (success) {
             currentPage++;
           } else {
@@ -224,7 +284,9 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
             break;
           }
         } else {
-          console.log('No more pages available.\n');
+          if (sourceConfig.selectors.pagination) {
+            console.log('No more pages available.\n');
+          }
           break;
         }
       }

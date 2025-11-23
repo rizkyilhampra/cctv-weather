@@ -1,8 +1,14 @@
 import * as cron from "node-cron";
+import { CCTVSource } from "../../types/source.types";
 
 export interface SchedulerConfig {
   times: string[]; // Array of times in HH:MM format (e.g., ["05:00", "17:00"])
   timezone: string; // IANA timezone (e.g., "Asia/Makassar")
+}
+
+export interface SourceTask {
+  source: CCTVSource;
+  task: () => Promise<void>;
 }
 
 export class Scheduler {
@@ -132,6 +138,73 @@ export class Scheduler {
             error
           );
           // Continue running - don't throw, so the scheduler keeps going
+        }
+      });
+
+      this.tasks.push(scheduledTask);
+    });
+  }
+
+  /**
+   * Schedule tasks with source mapping (dual-source mode)
+   * @param config - Scheduler configuration
+   * @param sourceTasks - Array of tasks matching the times array (task[0] runs at times[0], etc.)
+   */
+  scheduleWithSources(config: SchedulerConfig, sourceTasks: SourceTask[]): void {
+    const { times, timezone } = config;
+
+    if (times.length !== sourceTasks.length) {
+      throw new Error(
+        `SCHEDULE_TIMES count (${times.length}) must match number of sources (${sourceTasks.length}). ` +
+          `Expected exactly ${sourceTasks.length} times for sources: ${sourceTasks.map((t) => t.source).join(", ")}`
+      );
+    }
+
+    console.log(`Configuring scheduler for timezone: ${timezone}`);
+    console.log(`Scheduled executions:`);
+
+    // Create a scheduled task for each time-source pair
+    times.forEach((timeStr, index) => {
+      const { source, task } = sourceTasks[index];
+      const { hour, minute } = this.parseTime(timeStr);
+      const utc = this.convertTimeToUTC(hour, minute, timezone);
+
+      const cronExpr = `${utc.minute} ${utc.hour} * * *`;
+
+      console.log(
+        `  [${index + 1}] ${timeStr} (${timezone}) -> ${source} scraper [cron: ${cronExpr}]`
+      );
+
+      if (!cron.validate(cronExpr)) {
+        throw new Error(`Invalid cron expression: ${cronExpr}`);
+      }
+
+      const scheduledTask = cron.schedule(cronExpr, async () => {
+        const localTime = new Date().toLocaleString("en-US", {
+          timeZone: timezone,
+          hour12: false,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        });
+
+        console.log(
+          `[${new Date().toISOString()}] Executing ${source} scraper (${timezone}: ${localTime})`
+        );
+
+        try {
+          await task();
+          console.log(
+            `[${new Date().toISOString()}] ${source} scraper completed successfully`
+          );
+        } catch (error) {
+          console.error(
+            `[${new Date().toISOString()}] ${source} scraper failed:`,
+            error
+          );
         }
       });
 

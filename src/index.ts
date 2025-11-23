@@ -4,6 +4,8 @@
  */
 
 import { CapturedImage } from './types';
+import { CCTVSource } from './types/source.types';
+import { getSourceConfig } from './config';
 import { captureAndAnalyze } from './services/capture/capture.service';
 import { sendWeatherReport, sendError } from './services/messaging/telegram.service';
 import { saveFailedReport } from './infrastructure/storage/fallback.service';
@@ -18,10 +20,13 @@ interface ExecutionStatus {
 /**
  * Main task execution function
  * Runs the capture, analysis, and reporting workflow
+ * @param source - CCTV source to use (defaults to 'banjarkab')
  */
-async function executeTask() {
+async function executeTask(source: CCTVSource = 'banjarkab') {
+  const sourceConfig = getSourceConfig(source);
+
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('CCTV Weather Analysis with Telegram Integration');
+  console.log(`CCTV Weather Analysis - ${sourceConfig.displayName}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
   const status: ExecutionStatus = {
@@ -36,7 +41,7 @@ async function executeTask() {
 
   // Step 1: Capture and analyze
   try {
-    const result = await captureAndAnalyze();
+    const result = await captureAndAnalyze(sourceConfig);
     analysis = result.analysis;
     images = result.images;
     status.captureSuccess = true;
@@ -186,33 +191,50 @@ async function main() {
 }
 
 /**
- * Run in scheduled mode (long-running with scheduler)
+ * Run in scheduled mode (long-running with dual-source scheduler)
  */
 async function runScheduledMode() {
-  console.log('Mode: SCHEDULED (long-running)\n');
+  console.log('Mode: SCHEDULED (long-running, dual-source)\n');
 
   // Read schedule configuration from environment
-  const scheduleTimes = process.env.SCHEDULE_TIMES || '05:00';
+  const scheduleTimes = process.env.SCHEDULE_TIMES || '05:00,15:00';
   const timezone = process.env.TZ || 'Asia/Makassar';
 
   // Parse times (comma-separated)
   const times = scheduleTimes.split(',').map((t) => t.trim());
 
+  // Require exactly 2 times for dual-source mode
+  if (times.length !== 2) {
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('ERROR: Dual-source mode requires exactly 2 SCHEDULE_TIMES');
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    console.error(`Expected format: "time1,time2" (e.g., "05:00,15:00")`);
+    console.error(`  - First time runs Banjarkab scraper`);
+    console.error(`  - Second time runs Banjarbaru scraper`);
+    console.error(`\nCurrent value: "${scheduleTimes}" (${times.length} times)`);
+    console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    process.exit(1);
+  }
+
   console.log(`Schedule Configuration:`);
   console.log(`  Timezone: ${timezone}`);
-  console.log(`  Times: ${times.join(', ')}`);
+  console.log(`  ${times[0]} → Banjarkab scraper`);
+  console.log(`  ${times[1]} → Banjarbaru scraper`);
   console.log();
 
   // Create and configure scheduler
   const scheduler = new Scheduler();
 
   try {
-    scheduler.schedule(
+    scheduler.scheduleWithSources(
       {
         times,
         timezone,
       },
-      executeTask
+      [
+        { source: 'banjarkab', task: () => executeTask('banjarkab') },
+        { source: 'banjarbaru', task: () => executeTask('banjarbaru') }
+      ]
     );
 
     scheduler.start();
@@ -243,10 +265,15 @@ async function runScheduledMode() {
  * Run in immediate mode (execute once and exit)
  */
 async function runImmediateMode() {
-  console.log('Mode: IMMEDIATE (run once and exit)\n');
+  // Read source from environment or default to banjarkab
+  const source = (process.env.CCTV_SOURCE || 'banjarkab') as CCTVSource;
+  const sourceConfig = getSourceConfig(source);
+
+  console.log(`Mode: IMMEDIATE (run once and exit)\n`);
+  console.log(`Source: ${sourceConfig.displayName}\n`);
 
   try {
-    await executeTask();
+    await executeTask(source);
     console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('Task completed. Exiting.');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

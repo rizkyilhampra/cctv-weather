@@ -5,8 +5,12 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "tsx --env-file=.env src/index.ts",
+    "start:banjarkab": "CCTV_SOURCE=banjarkab tsx --env-file=.env src/index.ts",
+    "start:banjarbaru": "CCTV_SOURCE=banjarbaru tsx --env-file=.env src/index.ts",
     "build": "tsc",
-    "dev": "tsx --env-file=.env watch src/index.ts"
+    "dev": "tsx --env-file=.env watch src/index.ts",
+    "dev:banjarkab": "CCTV_SOURCE=banjarkab tsx --env-file=.env watch src/index.ts",
+    "dev:banjarbaru": "CCTV_SOURCE=banjarbaru tsx --env-file=.env watch src/index.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
