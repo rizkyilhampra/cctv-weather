@@ -160,6 +160,59 @@ npm start
 tsx src/index.ts
 ```
 
+### Scheduled Execution with Cron
+
+To run the application automatically at 5AM GMT+8 (21:00 UTC) daily:
+
+**Step 1: Open crontab editor**
+```bash
+crontab -e
+```
+
+**Step 2: Add the following cron entry**
+
+Replace `/path/to/cctv-weather` with your actual project directory:
+
+```cron
+0 21 * * * cd /path/to/cctv-weather && docker-compose up --abort-on-container-exit && docker-compose down >> logs/cron.log 2>&1
+```
+
+For example, if your project is in `/home/aquila/Projects/cctv-weather`:
+```cron
+0 21 * * * cd /home/aquila/Projects/cctv-weather && docker-compose up --abort-on-container-exit && docker-compose down >> logs/cron.log 2>&1
+```
+
+**Step 3: Save and exit**
+- For nano: Press `Ctrl+X`, then `Y`, then `Enter`
+- For vim: Press `Esc`, type `:wq`, then `Enter`
+
+**Step 4: Verify the cron job is installed**
+```bash
+crontab -l
+```
+
+**Step 5: Create logs directory if it doesn't exist**
+```bash
+mkdir -p /path/to/cctv-weather/logs
+```
+
+**Understanding the cron schedule:**
+- `0 21 * * *` means: At 21:00 (9 PM) UTC every day
+- 21:00 UTC = 5:00 AM GMT+8
+- `--abort-on-container-exit` stops compose when app finishes
+- `docker-compose down` cleans up containers after run
+- `>> logs/cron.log 2>&1` redirects all output to log file
+
+**To view logs:**
+```bash
+tail -f logs/cron.log
+```
+
+**To remove the cron job:**
+```bash
+crontab -e  # Then delete the line and save
+```
+
 ## How It Works
 
 1. **Capture Phase**:
