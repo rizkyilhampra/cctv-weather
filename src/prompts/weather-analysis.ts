@@ -4,6 +4,7 @@ export function generateWeatherAnalysisPrompt(
   images: CapturedImage[],
   greeting: string,
   dayName: string,
+  locationDisplayName: string = "Martapura, Kab. Banjar",
 ): string {
   const locationsList = images
     .map((img, idx) => `${idx + 1}. ${img.location}`)
@@ -11,7 +12,7 @@ export function generateWeatherAnalysisPrompt(
   const userName = process.env.USER_NAME || "Pengguna";
   const timeOfDay = greeting.replace("Selamat ", "").toLowerCase();
 
-  return `You are an intelligent weather assistant analyzing ${images.length} CCTV images from Kabupaten Banjar, Martapura, Indonesia.
+  return `You are an intelligent weather assistant analyzing ${images.length} CCTV images from ${locationDisplayName}, Indonesia.
 
 The images are provided in this exact order:
 ${locationsList}
@@ -60,7 +61,7 @@ STRUCTURE & RULES:
 
 1. **The Opening (STRICT)**:
    You MUST start the message EXACTLY with this sentence pattern:
-   "${greeting}, ${userName}! Berdasarkan pantauan CCTV pada ${timeOfDay} hari ini, ${dayName}, di Martapura, Kab. Banjar."
+   "${greeting}, ${userName}! Berdasarkan pantauan CCTV pada ${timeOfDay} hari ini, ${dayName}, di ${locationDisplayName}."
 
 2. **The Condition**:
    - Describe the weather based on your aggregate assessment.
@@ -84,6 +85,6 @@ TONE:
 `;
 }
 
-export function generateFallbackMessage(dayName: string): string {
-  return `Maaf! Kami tidak bisa menganalisis kondisi cuaca untuk hari ini (${dayName}) di Kabupaten Banjar, Martapura karena ada kendala teknis. Silakan cek lagi nanti untuk update cuaca!`;
+export function generateFallbackMessage(dayName: string, locationDisplayName: string = "Martapura, Kab. Banjar"): string {
+  return `Maaf! Kami tidak bisa menganalisis kondisi cuaca untuk hari ini (${dayName}) di ${locationDisplayName} karena ada kendala teknis. Silakan cek lagi nanti untuk update cuaca!`;
 }

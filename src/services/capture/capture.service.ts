@@ -325,7 +325,7 @@ export async function captureAndAnalyze(sourceConfig: SourceConfig): Promise<Cap
     console.log('Analyzing weather conditions across all locations...\n');
 
     const { greeting, dayName } = getWITAGreeting();
-    const prompt = generateWeatherAnalysisPrompt(capturedImages, greeting, dayName);
+    const prompt = generateWeatherAnalysisPrompt(capturedImages, greeting, dayName, sourceConfig.displayName);
 
     let analysis: string;
     try {
@@ -335,7 +335,7 @@ export async function captureAndAnalyze(sourceConfig: SourceConfig): Promise<Cap
       console.error('Error analyzing images:', error);
       console.log('\nFallback analysis:');
 
-      analysis = generateFallbackMessage(dayName);
+      analysis = generateFallbackMessage(dayName, sourceConfig.displayName);
       console.log(analysis);
     }
 
