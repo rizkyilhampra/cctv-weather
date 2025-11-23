@@ -78,10 +78,9 @@ STRUCTURE & RULES:
    - End simply with "Hati-hati di jalan!" or "Selamat jalan!".
 
 TONE:
-- Concise, practical, and direct.
 - Keep it in one paragraph.
-- No emojis.
-- No Em dash.
+- DO NOT use emojis.
+- DO NOT use em-dashes (—) ever.
 `;
 }
 
