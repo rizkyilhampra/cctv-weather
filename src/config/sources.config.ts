@@ -68,7 +68,7 @@ export function getSourceConfigs(): Record<CCTVSource, SourceConfig> {
       url: 'https://cctv.banjarbarukota.go.id/CCTV',
       displayName: 'Kota Banjarbaru',
       selectors: {
-        cardContainer: '.video-container',
+        cardContainer: '#cctv-container > div', // Each card is a direct child div
         cardTitle: 'h5',
         videoElement: 'video',
         // Banjarbaru uses HLS.js - check for error.png to detect offline cameras

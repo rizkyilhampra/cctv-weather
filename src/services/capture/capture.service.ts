@@ -218,7 +218,15 @@ export async function captureAndAnalyze(sourceConfig: SourceConfig): Promise<Cap
       for (const card of cards) {
         if (capturedCount >= targetCount) break;
 
-        const title = (await card.locator(sourceConfig.selectors.cardTitle).innerText()).trim();
+        // Try to get camera title - skip if it fails
+        let title: string;
+        try {
+          title = (await card.locator(sourceConfig.selectors.cardTitle).innerText()).trim();
+        } catch (err) {
+          const error = err as Error;
+          console.error(`   ✗ Failed to get camera title (${error.message}), skipping...\n`);
+          continue;
+        }
 
         // Apply filter if configured (case-insensitive match)
         if (sourceConfig.filterKeyword) {
