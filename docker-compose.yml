@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: cctv-weather
-    restart: unless-stopped
+    restart: "no"  # Don't restart on failure - run once and exit
 
     # Required for Chrome to avoid memory issues
     ipc: host

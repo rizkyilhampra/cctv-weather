@@ -147,7 +147,8 @@ export async function captureAndAnalyze(): Promise<CaptureAnalysisResult> {
   const browser: Browser = await chromium.launch({
     headless: browserConfig.headless,
     channel: browserConfig.browserChannel,
-    executablePath: browserConfig.chromiumPath,
+    // Only use executablePath if explicitly set AND no channel is specified
+    executablePath: browserConfig.browserChannel ? undefined : browserConfig.chromiumPath,
   });
 
   const context: BrowserContext = await browser.newContext();
