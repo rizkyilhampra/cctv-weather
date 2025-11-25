@@ -37,6 +37,25 @@ function parseBanjarbaruFilter(): string | undefined {
 }
 
 /**
+ * Check if CCTV sources should be combined into one analysis
+ * Returns true if COMBINE_SOURCES is set to 'true', '1', or 'yes'
+ * Defaults to true if not set (combined mode is the default)
+ */
+export function shouldCombineSources(): boolean {
+  const combineSources = process.env.COMBINE_SOURCES;
+
+  // Default to true if not set
+  if (combineSources === undefined || combineSources === '') {
+    return true;
+  }
+
+  // Parse value: 'true', '1', 'yes' = enabled
+  return combineSources.toLowerCase() === 'true' ||
+         combineSources === '1' ||
+         combineSources.toLowerCase() === 'yes';
+}
+
+/**
  * Configuration for all supported CCTV sources
  */
 export function getSourceConfigs(): Record<CCTVSource, SourceConfig> {

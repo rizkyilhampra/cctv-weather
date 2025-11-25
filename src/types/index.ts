@@ -2,12 +2,15 @@
  * Shared type definitions for the CCTV Weather project
  */
 
+import { CCTVSource } from './source.types';
+
 /**
  * Represents a captured CCTV camera image with location metadata
  */
 export interface CapturedImage {
   location: string;
   base64: string;
+  source?: CCTVSource; // Optional source tag for combined processing
 }
 
 /**

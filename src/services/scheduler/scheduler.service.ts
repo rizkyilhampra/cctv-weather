@@ -149,11 +149,18 @@ export class Scheduler {
    * Schedule tasks with source mapping (dual-source mode)
    * @param config - Scheduler configuration
    * @param sourceTasks - Array of tasks matching the times array (task[0] runs at times[0], etc.)
+   * @param isCombinedMode - If true, all source tasks run at each scheduled time
    */
-  scheduleWithSources(config: SchedulerConfig, sourceTasks: SourceTask[]): void {
+  scheduleWithSources(
+    config: SchedulerConfig,
+    sourceTasks: SourceTask[],
+    isCombinedMode: boolean = false
+  ): void {
     const { times, timezone } = config;
 
-    if (times.length !== sourceTasks.length) {
+    // In combined mode, times can be any count (1+)
+    // In split mode, times must match source count exactly
+    if (!isCombinedMode && times.length !== sourceTasks.length) {
       throw new Error(
         `SCHEDULE_TIMES count (${times.length}) must match number of sources (${sourceTasks.length}). ` +
           `Expected exactly ${sourceTasks.length} times for sources: ${sourceTasks.map((t) => t.source).join(", ")}`
@@ -161,55 +168,108 @@ export class Scheduler {
     }
 
     console.log(`Configuring scheduler for timezone: ${timezone}`);
+    console.log(`Mode: ${isCombinedMode ? 'COMBINED' : 'SPLIT'} sources`);
     console.log(`Scheduled executions:`);
 
-    // Create a scheduled task for each time-source pair
-    times.forEach((timeStr, index) => {
-      const { source, task } = sourceTasks[index];
-      const { hour, minute } = this.parseTime(timeStr);
-      const utc = this.convertTimeToUTC(hour, minute, timezone);
+    if (isCombinedMode) {
+      // Combined mode: All sources run at each scheduled time
+      times.forEach((timeStr, index) => {
+        const { hour, minute } = this.parseTime(timeStr);
+        const utc = this.convertTimeToUTC(hour, minute, timezone);
+        const cronExpr = `${utc.minute} ${utc.hour} * * *`;
 
-      const cronExpr = `${utc.minute} ${utc.hour} * * *`;
-
-      console.log(
-        `  [${index + 1}] ${timeStr} (${timezone}) -> ${source} scraper [cron: ${cronExpr}]`
-      );
-
-      if (!cron.validate(cronExpr)) {
-        throw new Error(`Invalid cron expression: ${cronExpr}`);
-      }
-
-      const scheduledTask = cron.schedule(cronExpr, async () => {
-        const localTime = new Date().toLocaleString("en-US", {
-          timeZone: timezone,
-          hour12: false,
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
-
+        const sourcesStr = sourceTasks.map(t => t.source).join(' + ');
         console.log(
-          `[${new Date().toISOString()}] Executing ${source} scraper (${timezone}: ${localTime})`
+          `  [${index + 1}] ${timeStr} (${timezone}) -> ALL sources (${sourcesStr}) [cron: ${cronExpr}]`
         );
 
-        try {
-          await task();
-          console.log(
-            `[${new Date().toISOString()}] ${source} scraper completed successfully`
-          );
-        } catch (error) {
-          console.error(
-            `[${new Date().toISOString()}] ${source} scraper failed:`,
-            error
-          );
+        if (!cron.validate(cronExpr)) {
+          throw new Error(`Invalid cron expression: ${cronExpr}`);
         }
-      });
 
-      this.tasks.push(scheduledTask);
-    });
+        const scheduledTask = cron.schedule(cronExpr, async () => {
+          const localTime = new Date().toLocaleString("en-US", {
+            timeZone: timezone,
+            hour12: false,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+
+          console.log(
+            `[${new Date().toISOString()}] Executing combined sources (${timezone}: ${localTime})`
+          );
+
+          // Run all source tasks
+          for (const { source, task } of sourceTasks) {
+            try {
+              await task();
+              console.log(
+                `[${new Date().toISOString()}] ${source} completed successfully`
+              );
+            } catch (error) {
+              console.error(
+                `[${new Date().toISOString()}] ${source} failed:`,
+                error
+              );
+              // Continue with next source even if one fails
+            }
+          }
+        });
+
+        this.tasks.push(scheduledTask);
+      });
+    } else {
+      // Split mode: Each time maps to one source
+      times.forEach((timeStr, index) => {
+        const { source, task } = sourceTasks[index];
+        const { hour, minute } = this.parseTime(timeStr);
+        const utc = this.convertTimeToUTC(hour, minute, timezone);
+        const cronExpr = `${utc.minute} ${utc.hour} * * *`;
+
+        console.log(
+          `  [${index + 1}] ${timeStr} (${timezone}) -> ${source} scraper [cron: ${cronExpr}]`
+        );
+
+        if (!cron.validate(cronExpr)) {
+          throw new Error(`Invalid cron expression: ${cronExpr}`);
+        }
+
+        const scheduledTask = cron.schedule(cronExpr, async () => {
+          const localTime = new Date().toLocaleString("en-US", {
+            timeZone: timezone,
+            hour12: false,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+
+          console.log(
+            `[${new Date().toISOString()}] Executing ${source} scraper (${timezone}: ${localTime})`
+          );
+
+          try {
+            await task();
+            console.log(
+              `[${new Date().toISOString()}] ${source} scraper completed successfully`
+            );
+          } catch (error) {
+            console.error(
+              `[${new Date().toISOString()}] ${source} scraper failed:`,
+              error
+            );
+          }
+        });
+
+        this.tasks.push(scheduledTask);
+      });
+    }
   }
 
   /**

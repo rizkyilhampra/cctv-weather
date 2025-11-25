@@ -10,4 +10,4 @@ dotenv.config();
 export { browserConfig } from './browser.config';
 export { apiConfig } from './api.config';
 export { defaultRetryConfig, retryConfigs } from './retry.config';
-export { getSourceConfigs, getSourceConfig } from './sources.config';
+export { getSourceConfigs, getSourceConfig, shouldCombineSources } from './sources.config';
