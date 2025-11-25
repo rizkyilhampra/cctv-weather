@@ -9,6 +9,7 @@ The system analyzes weather conditions using Google's Gemini AI and publishes co
 ## Features
 
 - **Dual-Source CCTV Capture**: Browser automation using Playwright to capture live feeds from both locations
+- **Firefox Fallback**: Automatic retry with Firefox for HLS streams that fail in Chrome
 - **AI Weather Analysis**: Google Gemini Flash analyzes multiple images to determine weather conditions (raining, wet, or dry)
 - **Telegram Integration**: Publishes weather reports with images to Telegram channels
 - **Scheduled Dual-Source Execution**: Configure different times for each CCTV source
@@ -80,7 +81,8 @@ cctv-weather/
 ## Prerequisites
 
 - Node.js (v18 or higher)
-- Chromium browser
+- Chromium/Chrome browser (primary)
+- Firefox browser (optional, for HLS fallback)
 - Google Generative AI API key
 - Telegram bot token
 
@@ -99,7 +101,11 @@ npm install
 
 3. Install Playwright browsers:
 ```bash
-npx playwright install chromium
+# Install Chrome (primary browser)
+npx playwright install chrome
+
+# Optional: Install Firefox for HLS fallback
+npx playwright install firefox
 ```
 
 4. Create environment file:
@@ -113,6 +119,7 @@ cp .env.example .env
 CHROMIUM_PATH=/usr/bin/chromium
 HEADLESS=false
 BROWSER_CHANNEL=chrome
+ENABLE_FIREFOX_FALLBACK=true  # Auto-retry failed streams with Firefox
 
 # Capture Configuration
 TARGET_COUNT=3
@@ -135,6 +142,8 @@ TELEGRAM_BATCH_SIZE=5  # Max images per media group (1-10, default: 5)
 
 ### Running with Docker (Recommended)
 
+The Docker image includes both Chrome and Firefox browsers for maximum HLS stream compatibility.
+
 #### Production Mode (Scheduled, Long-Running)
 
 The application runs as a scheduled service inside Docker. In production, the scheduler is **always enabled**:
@@ -153,6 +162,7 @@ docker-compose down
 The app will:
 - Start and wait for the scheduled execution time
 - Run the capture/analysis/reporting task at configured times
+- Automatically retry failed HLS streams with Firefox (enabled by default)
 - Continue running and repeat on the next scheduled time
 - Automatically restart if it crashes (Docker restart policy)
 
@@ -259,6 +269,45 @@ npm run start:banjarbaru  # Banjarbaru only
 | **Error Detection** | `.error-msg` element | `error.png` image |
 | **Online Indicator** | `.status-badge.online` | HLS load success |
 | **Filtering** | Not supported | Keyword filter (env: `BANJARBARU_FILTER`) |
+| **Firefox Fallback** | Not needed | Auto-enabled for failed streams |
+
+#### Firefox Fallback (Banjarbaru Only)
+
+Some HLS streams on Banjarbaru's CCTV system work better in Firefox than Chrome. The application automatically handles this:
+
+**How it works:**
+1. **Primary attempt**: Chrome tries to load all cameras
+2. **Track failures**: Cameras showing `error.png` are tracked
+3. **Automatic retry**: Firefox launches and retries only the failed cameras
+4. **Seamless integration**: Successfully captured images are added to the analysis
+
+**Configuration:**
+```env
+# Enable/disable Firefox fallback (enabled by default)
+ENABLE_FIREFOX_FALLBACK=true
+
+# Primary browser
+BROWSER_CHANNEL=chrome
+```
+
+**Requirements:**
+- Firefox must be installed: `npx playwright install firefox`
+- Only works when using Chrome as primary browser
+- Automatically skipped if already using Firefox
+
+**Example output:**
+```
+[1/3] Capturing: "JEMBATAN CEMPAKA 2"...
+   ✗ Video failed to load (showing error)
+   → Will retry with Firefox
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🦊 Retrying 1 failed camera(s) with Firefox...
+
+[1/3] Retrying: "JEMBATAN CEMPAKA 2"...
+   ✓ Captured with Firefox
+```
 
 #### Camera Filtering (Banjarbaru Only)
 
@@ -426,10 +475,11 @@ The application runs continuously as a long-running service:
 Each scheduled execution runs the following phases:
 
 1. **Capture Phase**:
-   - Navigates to https://cctv.banjarkab.go.id/grid
+   - Navigates to the CCTV source website
    - Selects online cameras from camera list
    - Automatically paginates through multiple pages if `TARGET_COUNT` exceeds cameras on current page
    - Captures video frames from configured number of cameras
+   - For Banjarbaru: Automatically retries failed HLS streams with Firefox (if enabled)
    - Retries failed captures with exponential backoff
    - Enforces capture timeout to prevent indefinite hangs
 
@@ -518,6 +568,8 @@ Set in `.env`:
 
 Edit `src/config/browser.config.ts` or set environment variables:
 - `CHROMIUM_PATH`: Path to Chromium executable
+- `BROWSER_CHANNEL`: Browser to use ('chrome' or 'firefox', default: 'chrome')
+- `ENABLE_FIREFOX_FALLBACK`: Auto-retry failed HLS streams with Firefox (default: true)
 - `HEADLESS`: Run browser in headless mode (true/false)
 - `PAGE_LOAD_TIMEOUT`: Page load timeout in milliseconds (default: 90000)
 - `SELECTOR_TIMEOUT`: Element selector timeout in milliseconds (default: 30000)
@@ -580,12 +632,22 @@ npm run build
 
 ### Browser Not Found
 ```bash
-# Install Playwright browsers
-npx playwright install chromium
+# Install Chrome (primary browser)
+npx playwright install chrome
 
-# Or set custom path in .env
+# Install Firefox (for HLS fallback)
+npx playwright install firefox
+
+# Or set custom path in .env (for Chrome)
 CHROMIUM_PATH=/path/to/chromium
 ```
+
+### HLS Streams Failing
+If certain cameras consistently fail to load:
+1. Ensure Firefox is installed: `npx playwright install firefox`
+2. Verify `ENABLE_FIREFOX_FALLBACK=true` in `.env`
+3. Check console output for "🦊 Retrying with Firefox..." message
+4. If still failing, try setting `BROWSER_CHANNEL=firefox` to use Firefox as primary browser
 
 ### Telegram Send Failures
 

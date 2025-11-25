@@ -7,8 +7,11 @@ services:
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - ENABLE_SCHEDULER=${ENABLE_SCHEDULER:-}
+      - CCTV_SOURCE=${CCTV_SOURCE:-}
       - HEADLESS=${HEADLESS:-true}
       - BROWSER_CHANNEL=chrome
+      - ENABLE_FIREFOX_FALLBACK=${ENABLE_FIREFOX_FALLBACK:-true}
+      - BANJARBARU_FILTER=${BANJARBARU_FILTER:-}
       - TARGET_COUNT=${TARGET_COUNT:-3}
       - OUTPUT_DIR=/app/data/snapshots
       - MAX_RETRIES=${MAX_RETRIES:-2}

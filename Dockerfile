@@ -6,7 +6,8 @@ COPY package*.json ./
 
 RUN npm ci
 
-RUN npx playwright install chrome --with-deps
+# Install Chrome (primary) and Firefox (fallback for HLS streams)
+RUN npx playwright install chrome firefox --with-deps
 
 COPY tsconfig.json ./
 COPY src ./src
@@ -20,6 +21,7 @@ RUN npm prune --production
 ENV NODE_ENV=production
 ENV HEADLESS=true
 ENV BROWSER_CHANNEL=chrome
+ENV ENABLE_FIREFOX_FALLBACK=true
 
 USER pwuser
 

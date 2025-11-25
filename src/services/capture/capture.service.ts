@@ -3,7 +3,7 @@
  */
 
 import path from 'path';
-import { chromium, Browser, BrowserContext, Page, Locator } from 'playwright';
+import { chromium, firefox, Browser, BrowserContext, Page, Locator } from 'playwright';
 import { CapturedImage, CaptureResult, CaptureAnalysisResult } from '../../types';
 import { SourceConfig } from '../../types/source.types';
 import { browserConfig, apiConfig } from '../../config';
@@ -15,6 +15,24 @@ import { captureVideoFrameBase64, isVideoReady, ensureVideoPlaying } from './vid
 import { waitForAlpineReady, loadVideoViaAlpine, isHLSVideoLoaded } from './alpine-interaction';
 import { getWITAGreeting } from '../../utils/time';
 import { saveImages, ensureDir } from '../../infrastructure/storage/file-manager';
+
+/**
+ * Launch browser based on configuration
+ */
+async function launchBrowser(browserType: 'chrome' | 'firefox' = 'chrome'): Promise<Browser> {
+  if (browserType === 'firefox') {
+    return await firefox.launch({
+      headless: browserConfig.headless,
+    });
+  }
+
+  return await chromium.launch({
+    headless: browserConfig.headless,
+    channel: browserConfig.browserChannel === 'firefox' ? undefined : browserConfig.browserChannel,
+    executablePath: browserConfig.browserChannel === 'firefox' ? undefined :
+                   (browserConfig.browserChannel ? undefined : browserConfig.chromiumPath),
+  });
+}
 
 /**
  * Capture a single camera with retry logic
@@ -151,23 +169,28 @@ async function goToNextPage(
 }
 
 /**
+ * Interface for tracking failed cameras that need Firefox retry
+ */
+interface FailedCamera {
+  title: string;
+  url: string;
+}
+
+/**
  * Main capture and analysis function
  */
 export async function captureAndAnalyze(sourceConfig: SourceConfig): Promise<CaptureAnalysisResult> {
   console.log(`Starting CCTV Weather Analysis for ${sourceConfig.displayName}...\n`);
 
-  // Launch browser
-  const browser: Browser = await chromium.launch({
-    headless: browserConfig.headless,
-    channel: browserConfig.browserChannel,
-    // Only use executablePath if explicitly set AND no channel is specified
-    executablePath: browserConfig.browserChannel ? undefined : browserConfig.chromiumPath,
-  });
+  // Determine initial browser type
+  const initialBrowserType = browserConfig.browserChannel === 'firefox' ? 'firefox' : 'chrome';
+  const browser: Browser = await launchBrowser(initialBrowserType);
 
   const context: BrowserContext = await browser.newContext();
   const page: Page = await context.newPage();
 
   const capturedImages: CapturedImage[] = [];
+  const failedCameras: FailedCamera[] = []; // Track cameras that failed HLS loading
 
   try {
     console.log(`Navigating to ${sourceConfig.url}...`);
@@ -255,6 +278,12 @@ export async function captureAndAnalyze(sourceConfig: SourceConfig): Promise<Cap
           // Check if HLS loaded successfully (not error.png)
           if (!(await isHLSVideoLoaded(card))) {
             console.error(`   ✗ Video failed to load (showing error)\n`);
+
+            // Track for Firefox retry if enabled and using Chrome
+            if (browserConfig.enableFirefoxFallback && initialBrowserType === 'chrome') {
+              failedCameras.push({ title, url: sourceConfig.url });
+              console.log(`   → Will retry with Firefox\n`);
+            }
             continue;
           }
         }
@@ -301,6 +330,108 @@ export async function captureAndAnalyze(sourceConfig: SourceConfig): Promise<Cap
     }
 
     await browser.close();
+
+    // Firefox fallback: Retry failed cameras with Firefox
+    if (
+      browserConfig.enableFirefoxFallback &&
+      initialBrowserType === 'chrome' &&
+      failedCameras.length > 0 &&
+      capturedCount < targetCount
+    ) {
+      console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log(`\n🦊 Retrying ${failedCameras.length} failed camera(s) with Firefox...\n`);
+
+      const firefoxBrowser = await launchBrowser('firefox');
+      const firefoxContext = await firefoxBrowser.newContext();
+      const firefoxPage = await firefoxContext.newPage();
+
+      try {
+        await firefoxPage.goto(sourceConfig.url, {
+          waitUntil: 'load',
+          timeout: browserConfig.pageLoadTimeout,
+        });
+
+        await firefoxPage.waitForSelector(sourceConfig.selectors.cardContainer, {
+          timeout: browserConfig.selectorTimeout
+        });
+
+        if (sourceConfig.requiresClick && sourceConfig.alpineWaitTime) {
+          const alpineReady = await waitForAlpineReady(firefoxPage, sourceConfig.alpineWaitTime);
+          if (!alpineReady) {
+            console.warn('Alpine.js may not be ready in Firefox, proceeding anyway...');
+          }
+        }
+
+        await firefoxPage.waitForTimeout(browserConfig.videoInitWait);
+
+        // Process each failed camera
+        for (const failedCamera of failedCameras) {
+          if (capturedCount >= targetCount) break;
+
+          const cards = await firefoxPage.locator(sourceConfig.selectors.cardContainer).all();
+
+          for (const card of cards) {
+            let title: string;
+            try {
+              title = (await card.locator(sourceConfig.selectors.cardTitle).innerText()).trim();
+            } catch {
+              continue;
+            }
+
+            // Only process the specific failed camera
+            if (title !== failedCamera.title) continue;
+
+            console.log(`[${capturedCount + 1}/${targetCount}] Retrying: "${title}"...`);
+
+            // Check if camera is online
+            if (!(await isCameraOnline(card, sourceConfig.selectors))) {
+              continue;
+            }
+
+            // Trigger video loading
+            if (sourceConfig.requiresClick) {
+              const clicked = await loadVideoViaAlpine(firefoxPage, card);
+              if (!clicked) {
+                console.error(`   ✗ Failed to trigger video load in Firefox\n`);
+                continue;
+              }
+
+              if (!(await isHLSVideoLoaded(card))) {
+                console.error(`   ✗ Video still failed to load in Firefox\n`);
+                continue;
+              }
+            }
+
+            // Capture the camera feed
+            const result = await captureSingleCameraWithTimeout(
+              firefoxPage,
+              card,
+              title,
+              browserConfig.captureTimeout,
+              sourceConfig
+            );
+
+            if (result.success && result.base64Image && result.location) {
+              capturedImages.push({
+                location: result.location,
+                base64: result.base64Image
+              });
+              console.log(`   ✓ Captured with Firefox\n`);
+              capturedCount++;
+            } else {
+              console.error(`   ✗ Failed in Firefox: ${result.error}\n`);
+            }
+
+            break; // Move to next failed camera
+          }
+        }
+      } catch (error) {
+        console.error('Firefox retry error:', error);
+      } finally {
+        await firefoxBrowser.close();
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      }
+    }
 
     if (capturedImages.length === 0) {
       console.error('No images were captured. Cannot perform analysis.');

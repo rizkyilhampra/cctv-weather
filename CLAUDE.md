@@ -47,6 +47,17 @@ const { saveImages } = await import(
 - **Production mode**: Set `NODE_ENV=production` (default)
 - Debug features should be non-intrusive and documented
 
+### Browser Fallback System
+
+The application includes an automatic Firefox fallback mechanism for HLS stream compatibility:
+
+- **Primary browser**: Chrome (default via `BROWSER_CHANNEL=chrome`)
+- **Fallback behavior**: When Chrome fails to load HLS streams (shows `error.png`), the system automatically retries those specific cameras with Firefox
+- **Configuration**: Controlled by `ENABLE_FIREFOX_FALLBACK` (enabled by default)
+- **Use case**: Some HLS streams on Banjarbaru's CCTV system work better in Firefox than Chrome
+
+This ensures maximum camera coverage without manual intervention.
+
 ## Before Committing
 
 1. **Type check**: Run `npx tsc --noEmit`
