@@ -28,6 +28,30 @@ export const retryConfigs = {
     backoffMultiplier: 2,
   },
 
+  // Telegram media retries (no retry on 504 to prevent duplicates)
+  telegramMedia: {
+    maxRetries: 3,
+    initialDelayMs: 2000, // 2 seconds
+    backoffMultiplier: 2,
+    shouldRetry: (error: Error) => {
+      const errorMessage = error.message.toLowerCase();
+      // Don't retry 504 Gateway Timeout - likely already succeeded
+      if (errorMessage.includes('504')) {
+        return false;
+      }
+      // Retry other transient errors (network, 429, 500, 502, 503)
+      return (
+        errorMessage.includes('econnreset') ||
+        errorMessage.includes('econnrefused') ||
+        errorMessage.includes('etimedout') ||
+        errorMessage.includes('429') ||
+        errorMessage.includes('500') ||
+        errorMessage.includes('502') ||
+        errorMessage.includes('503')
+      );
+    },
+  },
+
   // Telegram error notifications (fewer retries, fast)
   telegramError: {
     maxRetries: 2,

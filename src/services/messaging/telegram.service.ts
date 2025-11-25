@@ -61,10 +61,10 @@ class TelegramService {
             await this.bot!.sendMediaGroup(this.chatId, media);
           },
           {
-            ...retryConfigs.telegram,
+            ...retryConfigs.telegramMedia,
             onRetry: (attempt, error, delayMs) => {
               console.log(`\nFailed to send media group (batch ${batchIndex + 1}): ${error.message}`);
-              logRetryAttempt('sendMediaGroup', attempt, retryConfigs.telegram.maxRetries, error, delayMs);
+              logRetryAttempt('sendMediaGroup', attempt, retryConfigs.telegramMedia.maxRetries, error, delayMs);
             },
           }
         );
