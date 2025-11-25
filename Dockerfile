@@ -11,7 +11,7 @@ RUN npx playwright install chrome --with-deps
 COPY tsconfig.json ./
 COPY src ./src
 
-RUN mkdir -p data/snapshots data/captures
+RUN mkdir -p data/snapshots data/captures data/logs
 
 RUN npm run build
 

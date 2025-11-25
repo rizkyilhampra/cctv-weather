@@ -27,6 +27,6 @@ services:
     volumes:
       - ./data/snapshots:/app/data/snapshots
       - ./data/captures:/app/data/captures
-      - ./logs:/app/logs
+      - ./data/logs:/app/data/logs
     env_file:
       - .env
