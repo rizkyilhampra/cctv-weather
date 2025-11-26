@@ -9,10 +9,11 @@ The system analyzes weather conditions using Google's Gemini AI and publishes co
 ## Features
 
 - **Dual-Source CCTV Capture**: Browser automation using Playwright to capture live feeds from both locations
+- **Combined Mode (NEW)**: Captures from both sources and produces one unified weather report (default behavior)
+- **Flexible Scheduling**: Configure 1 or more times per day in combined mode, or 2 specific times in split mode
 - **Firefox Fallback**: Automatic retry with Firefox for HLS streams that fail in Chrome
 - **AI Weather Analysis**: Google Gemini Flash analyzes multiple images to determine weather conditions (raining, wet, or dry)
 - **Telegram Integration**: Publishes weather reports with images to Telegram channels
-- **Scheduled Dual-Source Execution**: Configure different times for each CCTV source
 - **Robust Error Handling**:
   - Exponential backoff retry mechanism
   - Transient vs permanent error classification
@@ -184,31 +185,76 @@ This will:
 - Exit after completion (no scheduling)
 - Useful for testing and debugging
 
-### Schedule Configuration (Dual-Source Mode)
+### Schedule Configuration
 
-The application supports monitoring two CCTV sources with independent schedules:
+The application supports two modes for processing CCTV sources:
+
+1. **Combined Mode (Default)**: Captures from both sources and produces one unified weather report
+2. **Split Mode**: Processes each source independently with separate reports
+
+#### Sources
 
 1. **Kabupaten Banjar (Banjarkab)**: https://cctv.banjarkab.go.id/grid
 2. **Kota Banjarbaru (Banjarbaru)**: https://cctv.banjarbarukota.go.id/CCTV
 
-#### Production Mode (Scheduled Execution)
+#### Combined Mode (Recommended, Default)
 
-In production, **exactly 2 times must be configured** in `SCHEDULE_TIMES`:
-
+**Configuration:**
 ```env
-# MUST have exactly 2 times
-# Format: time1,time2
-# First time = Banjarkab scraper
-# Second time = Banjarbaru scraper
-SCHEDULE_TIMES=05:00,15:00
+COMBINE_SOURCES=true  # or unset (defaults to true)
+SCHEDULE_TIMES=05:00,15:00  # Flexible: 1 or more times
 TZ=Asia/Makassar
 ```
 
-**Example execution:**
-- 05:00 WITA (5:00 AM) → Captures from **Banjarkab**
-- 15:00 WITA (3:00 PM) → Captures from **Banjarbaru**
+**How it works:**
+- Captures images from BOTH Banjarkab AND Banjarbaru
+- Sends all images to AI in one batch
+- Produces ONE unified weather report covering both regions
+- Sends ONE Telegram message with all images and combined analysis
+- Runs at each specified time
 
-**Other examples:**
+**Example execution with `SCHEDULE_TIMES=05:00,15:00`:**
+- 05:00 WITA (5:00 AM) → Captures from **both sources**, sends **one combined report**
+- 15:00 WITA (3:00 PM) → Captures from **both sources**, sends **one combined report**
+
+**Scheduling examples:**
+```env
+# Run once per day
+SCHEDULE_TIMES=05:00  → Both sources at 5 AM (one combined report)
+
+# Run twice per day (default)
+SCHEDULE_TIMES=05:00,15:00  → Both sources at 5 AM and 3 PM
+
+# Run three times per day
+SCHEDULE_TIMES=06:00,12:00,18:00  → Both sources at 6 AM, 12 PM, and 6 PM
+```
+
+**Benefits:**
+- ✅ More efficient (fewer API calls, fewer Telegram messages)
+- ✅ Unified weather overview across both regions
+- ✅ Flexible scheduling (1 or more times per day)
+- ✅ Default behavior - no configuration needed
+
+#### Split Mode (Legacy Behavior)
+
+**Configuration:**
+```env
+COMBINE_SOURCES=false
+SCHEDULE_TIMES=05:00,15:00  # MUST have exactly 2 times
+TZ=Asia/Makassar
+```
+
+**How it works:**
+- Processes each source independently
+- Each source gets its own AI analysis
+- Sends separate Telegram messages for each source
+- MUST have exactly 2 times (one per source)
+
+**Example execution with `SCHEDULE_TIMES=05:00,15:00`:**
+- 05:00 WITA (5:00 AM) → Captures from **Banjarkab only**, sends **separate report**
+- 15:00 WITA (3:00 PM) → Captures from **Banjarbaru only**, sends **separate report**
+
+**Scheduling examples:**
 ```env
 # Morning and evening
 SCHEDULE_TIMES=06:00,18:00  → Banjarkab at 6 AM, Banjarbaru at 6 PM
@@ -217,7 +263,7 @@ SCHEDULE_TIMES=06:00,18:00  → Banjarkab at 6 AM, Banjarbaru at 6 PM
 SCHEDULE_TIMES=07:00,14:00  → Banjarkab at 7 AM, Banjarbaru at 2 PM
 ```
 
-**⚠️ Important:** The application will **exit with an error** if `SCHEDULE_TIMES` does not have exactly 2 values:
+**⚠️ Important:** In split mode, `SCHEDULE_TIMES` **must have exactly 2 values**:
 ```env
 # ✗ Invalid - only 1 time
 SCHEDULE_TIMES=05:00
@@ -229,15 +275,25 @@ SCHEDULE_TIMES=05:00,12:00,18:00
 SCHEDULE_TIMES=05:00,15:00
 ```
 
+**Use cases for split mode:**
+- You want separate weather reports for each region
+- Different notification channels per region
+- Testing individual sources
+
 #### Immediate Mode (Manual Testing)
 
 Test sources without scheduling:
 
 ```bash
-# Test BOTH sources synchronously (when CCTV_SOURCE is unset/empty)
+# Combined mode (default) - captures both sources, one report
+COMBINE_SOURCES=true npm start
+# or just:
 npm start
 
-# Test individual sources only
+# Split mode - captures both sources separately, two reports
+COMBINE_SOURCES=false npm start
+
+# Test individual sources only (ignores COMBINE_SOURCES)
 CCTV_SOURCE=banjarkab npm start
 CCTV_SOURCE=banjarbaru npm start
 
@@ -248,13 +304,15 @@ npm run start:banjarbaru  # Banjarbaru only
 
 **Available scripts:**
 - `npm start` - Run with scheduler (production) or immediate mode (development)
-  - When scheduler disabled and `CCTV_SOURCE` unset: processes both sources
+  - When scheduler disabled and `CCTV_SOURCE` unset:
+    - Combined mode (default): One unified report for both sources
+    - Split mode (COMBINE_SOURCES=false): Two separate reports
   - When scheduler disabled and `CCTV_SOURCE` set: processes only specified source
 - `npm run start:banjarkab` - Test Banjarkab source immediately
 - `npm run start:banjarbaru` - Test Banjarbaru source immediately
-- `npm run dev` - Watch mode (respects `CCTV_SOURCE`)
-  - When `CCTV_SOURCE` unset: processes both sources in watch mode
-  - When `CCTV_SOURCE` set: processes only specified source in watch mode
+- `npm run dev` - Watch mode (respects `CCTV_SOURCE` and `COMBINE_SOURCES`)
+  - When `CCTV_SOURCE` unset: processes both sources (combined or split based on COMBINE_SOURCES)
+  - When `CCTV_SOURCE` set: processes only specified source
 - `npm run dev:banjarkab` - Watch mode for Banjarkab only
 - `npm run dev:banjarbaru` - Watch mode for Banjarbaru only
 
@@ -420,17 +478,22 @@ cp .env.example .env
 # Set in .env
 NODE_ENV=development
 ENABLE_SCHEDULER=  # Leave empty
+COMBINE_SOURCES=true  # Default: Combined mode (one unified report)
 
-# Run - processes BOTH sources synchronously when CCTV_SOURCE is unset
+# Run combined mode (default) - captures both sources, one report
 npm start
 
-# Or specify a single source
+# Run split mode - captures both sources separately, two reports
+COMBINE_SOURCES=false npm start
+
+# Or specify a single source (ignores COMBINE_SOURCES)
 CCTV_SOURCE=banjarkab npm start
 CCTV_SOURCE=banjarbaru npm start
 ```
 
-**Dual-Source Immediate Mode:**
-When `CCTV_SOURCE` is unset or empty in immediate mode, the application will process both sources synchronously (one after the other) rather than just one source.
+**Combined vs Split Mode:**
+- **Combined mode (COMBINE_SOURCES=true, default)**: Captures from both sources and produces ONE unified weather report
+- **Split mode (COMBINE_SOURCES=false)**: Processes each source independently with separate reports
 
 **Scheduled mode (long-running):**
 ```bash
@@ -542,12 +605,19 @@ Set in `.env`:
   - **In development**:
     - `true`, `1`, or `yes` = Scheduled mode (long-running)
     - Unset or `false` = Immediate mode (run once and exit)
+- `COMBINE_SOURCES`: Control source combination mode
+  - **`true`, `1`, `yes` (default)**: Combined mode - captures both sources, one unified report
+  - **`false`, `0`, `no`**: Split mode - processes each source separately with individual reports
 
 ### Schedule Settings
 
 Set in `.env`:
-- `SCHEDULE_TIMES`: Comma-separated times in 24-hour format (default: `05:00`)
+- `SCHEDULE_TIMES`: Comma-separated times in 24-hour format
+  - **Combined mode**: Can have 1 or more times (flexible)
+  - **Split mode**: Must have exactly 2 times (one per source)
+  - Default: `05:00,15:00`
 - `TZ`: IANA timezone identifier (default: `Asia/Makassar`)
+- `CCTV_SOURCE`: (Immediate mode only) Select specific source or leave unset for both sources
 
 **Time format:**
 - Use 24-hour format: `HH:MM`

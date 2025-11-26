@@ -5,8 +5,8 @@
 
 import { CapturedImage } from './types';
 import { CCTVSource } from './types/source.types';
-import { getSourceConfig } from './config';
-import { captureAndAnalyze } from './services/capture/capture.service';
+import { getSourceConfig, getSourceConfigs, shouldCombineSources } from './config';
+import { captureAndAnalyze, captureAndAnalyzeCombined } from './services/capture/capture.service';
 import { sendWeatherReport, sendError } from './services/messaging/telegram.service';
 import { saveFailedReport } from './infrastructure/storage/fallback.service';
 import { Scheduler } from './services/scheduler/scheduler.service';
@@ -15,6 +15,79 @@ interface ExecutionStatus {
   captureSuccess: boolean;
   analysisSuccess: boolean;
   telegramSuccess: boolean;
+}
+
+/**
+ * Execute combined source task
+ * Captures from all sources and produces one unified analysis
+ */
+async function executeCombinedTask() {
+  const sourceConfigs = getSourceConfigs();
+  const allSources = Object.values(sourceConfigs);
+  const displayNames = allSources.map(c => c.displayName).join(' & ');
+
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log(`CCTV Weather Analysis - COMBINED MODE`);
+  console.log(`Sources: ${displayNames}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+
+  const status: ExecutionStatus = {
+    captureSuccess: false,
+    analysisSuccess: false,
+    telegramSuccess: false,
+  };
+
+  let analysis: string | null = null;
+  let images: CapturedImage[] = [];
+  let captureError: Error | null = null;
+
+  // Step 1: Capture and analyze from all sources
+  try {
+    const result = await captureAndAnalyzeCombined(allSources);
+    analysis = result.analysis;
+    images = result.images;
+    status.captureSuccess = true;
+    status.analysisSuccess = true;
+    console.log('✓ Combined capture and analysis completed successfully\n');
+  } catch (error) {
+    captureError = error as Error;
+    console.error(`✗ Combined capture/analysis failed: ${captureError.message}\n`);
+  }
+
+  // Step 2: Send to Telegram (if we have results)
+  if (analysis && images.length > 0) {
+    try {
+      console.log('Preparing to send combined results to Telegram...\n');
+      await sendWeatherReport(analysis, images);
+      status.telegramSuccess = true;
+      console.log('✓ Combined results sent to Telegram successfully\n');
+    } catch (telegramError) {
+      const err = telegramError as Error;
+      console.error(`✗ Telegram send failed: ${err.message}\n`);
+
+      // Graceful degradation: Save locally
+      console.log('Attempting to save results locally as fallback...');
+      try {
+        await saveFailedReport(analysis, images, err);
+        console.log('✓ Results saved locally successfully\n');
+      } catch (saveError) {
+        console.error('✗ Failed to save results locally:', saveError);
+      }
+    }
+  }
+
+  // Step 3: Log final status
+  logExecutionStatus(status);
+
+  // Step 4: Send error notification if needed
+  if (captureError && !status.telegramSuccess) {
+    try {
+      await sendError(captureError);
+      console.log('Error notification sent to Telegram.');
+    } catch (notifyError) {
+      console.error('Could not send error notification:', notifyError);
+    }
+  }
 }
 
 /**
@@ -194,7 +267,9 @@ async function main() {
  * Run in scheduled mode (long-running with dual-source scheduler)
  */
 async function runScheduledMode() {
-  console.log('Mode: SCHEDULED (long-running, dual-source)\n');
+  const combineSources = shouldCombineSources();
+
+  console.log(`Mode: SCHEDULED (long-running, ${combineSources ? 'COMBINED' : 'SPLIT'} sources)\n`);
 
   // Read schedule configuration from environment
   const scheduleTimes = process.env.SCHEDULE_TIMES || '05:00,15:00';
@@ -203,39 +278,69 @@ async function runScheduledMode() {
   // Parse times (comma-separated)
   const times = scheduleTimes.split(',').map((t) => t.trim());
 
-  // Require exactly 2 times for dual-source mode
-  if (times.length !== 2) {
+  // Validate schedule times based on mode
+  if (!combineSources && times.length !== 2) {
+    // Split mode requires exactly 2 times
     console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('ERROR: Dual-source mode requires exactly 2 SCHEDULE_TIMES');
+    console.error('ERROR: Split-source mode requires exactly 2 SCHEDULE_TIMES');
     console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     console.error(`Expected format: "time1,time2" (e.g., "05:00,15:00")`);
     console.error(`  - First time runs Banjarkab scraper`);
     console.error(`  - Second time runs Banjarbaru scraper`);
     console.error(`\nCurrent value: "${scheduleTimes}" (${times.length} times)`);
+    console.error('\nTo use combined mode (flexible schedule), set: COMBINE_SOURCES=true');
     console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    process.exit(1);
+  }
+
+  if (times.length === 0) {
+    console.error('ERROR: At least 1 SCHEDULE_TIME is required');
     process.exit(1);
   }
 
   console.log(`Schedule Configuration:`);
   console.log(`  Timezone: ${timezone}`);
-  console.log(`  ${times[0]} → Banjarkab scraper`);
-  console.log(`  ${times[1]} → Banjarbaru scraper`);
+  console.log(`  Mode: ${combineSources ? 'COMBINED (all sources at each time)' : 'SPLIT (one source per time)'}`);
+
+  if (combineSources) {
+    console.log(`  Schedule times: ${times.join(', ')}`);
+    console.log(`  Sources: Banjarkab + Banjarbaru (combined)`);
+  } else {
+    console.log(`  ${times[0]} → Banjarkab scraper`);
+    console.log(`  ${times[1]} → Banjarbaru scraper`);
+  }
   console.log();
 
   // Create and configure scheduler
   const scheduler = new Scheduler();
 
   try {
-    scheduler.scheduleWithSources(
-      {
-        times,
-        timezone,
-      },
-      [
-        { source: 'banjarkab', task: () => executeTask('banjarkab') },
-        { source: 'banjarbaru', task: () => executeTask('banjarbaru') }
-      ]
-    );
+    if (combineSources) {
+      // Combined mode: Use executeCombinedTask
+      scheduler.scheduleWithSources(
+        {
+          times,
+          timezone,
+        },
+        [
+          { source: 'combined' as CCTVSource, task: () => executeCombinedTask() }
+        ],
+        true // isCombinedMode = true
+      );
+    } else {
+      // Split mode: Use separate executeTask calls
+      scheduler.scheduleWithSources(
+        {
+          times,
+          timezone,
+        },
+        [
+          { source: 'banjarkab', task: () => executeTask('banjarkab') },
+          { source: 'banjarbaru', task: () => executeTask('banjarbaru') }
+        ],
+        false // isCombinedMode = false
+      );
+    }
 
     scheduler.start();
 
@@ -265,35 +370,56 @@ async function runScheduledMode() {
  * Run in immediate mode (execute once and exit)
  */
 async function runImmediateMode() {
+  const combineSources = shouldCombineSources();
+
   console.log(`Mode: IMMEDIATE (run once and exit)\n`);
 
   // Check if CCTV_SOURCE is set to determine execution mode
   const cctvSource = process.env.CCTV_SOURCE;
 
   if (cctvSource === undefined || cctvSource.trim() === '') {
-    // No specific source set - run both sources synchronously
-    console.log('CCTV_SOURCE not set - running BOTH sources synchronously...\n');
-
-    const sources: CCTVSource[] = ['banjarkab', 'banjarbaru'];
-
-    for (const source of sources) {
-      const sourceConfig = getSourceConfig(source);
-      console.log(`Processing source: ${sourceConfig.displayName}\n`);
+    // No specific source set - check if we should combine
+    if (combineSources) {
+      // Combined mode - run all sources with one analysis
+      console.log('CCTV_SOURCE not set + COMBINE_SOURCES enabled - running in COMBINED mode...\n');
 
       try {
-        await executeTask(source);
-        console.log(`\n✓ Completed processing: ${sourceConfig.displayName}\n`);
-        console.log('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n');
+        await executeCombinedTask();
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('Combined task completed. Exiting.');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        process.exit(0);
       } catch (error) {
-        console.error(`\n✗ Failed to process ${sourceConfig.displayName}:`, error);
-        console.log('Continuing with next source...\n');
+        console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.error('Combined task failed:', error);
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        process.exit(1);
       }
-    }
+    } else {
+      // Split mode - run both sources separately
+      console.log('CCTV_SOURCE not set - running BOTH sources SEPARATELY...\n');
 
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('Completed processing all sources. Exiting.');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    process.exit(0);
+      const sources: CCTVSource[] = ['banjarkab', 'banjarbaru'];
+
+      for (const source of sources) {
+        const sourceConfig = getSourceConfig(source);
+        console.log(`Processing source: ${sourceConfig.displayName}\n`);
+
+        try {
+          await executeTask(source);
+          console.log(`\n✓ Completed processing: ${sourceConfig.displayName}\n`);
+          console.log('┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n');
+        } catch (error) {
+          console.error(`\n✗ Failed to process ${sourceConfig.displayName}:`, error);
+          console.log('Continuing with next source...\n');
+        }
+      }
+
+      console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('Completed processing all sources. Exiting.');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      process.exit(0);
+    }
   } else {
     // Specific source is set - run only that source (original behavior)
     const source = cctvSource as CCTVSource;
